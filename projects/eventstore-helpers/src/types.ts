@@ -14,10 +14,16 @@ export interface Snapshot<T> {
   [key: string]: unknown;
 }
 
+export interface EventMetadata {
+  correlationId?: string;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
 export interface JSONEventType {
   type: string;
   data: JSONType;
-  metadata?: unknown;
+  metadata?: EventMetadata;
 }
 
 export interface SnapshotEventType extends JSONEventType {

@@ -1,5 +1,5 @@
 import { EventStoreDBClient, StreamNotFoundError, ResolvedEvent, START, ReadRevision, jsonEvent } from '@eventstore/db-client';
-import { Snapshot, SnapshotEventType, StreamConfig, JSONEventType } from './types';
+import { Snapshot, SnapshotEventType, StreamConfig, JSONEventType, EventMetadata } from './types';
 
 export class StreamHelper<E extends JSONEventType, S = any> {
   private client: EventStoreDBClient;
@@ -46,14 +46,29 @@ export class StreamHelper<E extends JSONEventType, S = any> {
     }
   }
 
-  async appendEvent(aggregateId: string, event: E): Promise<void> {
+  async appendEvent(
+    aggregateId: string,
+    event: E,
+    metadata?: Partial<EventMetadata>
+  ): Promise<void> {
     const streamName = `${this.config.streamPrefix}-${aggregateId}`;
-    const eventData = jsonEvent({
+    const eventMetadata = metadata ? {
+      ...metadata,
+      timestamp: metadata.timestamp || new Date().toISOString(),
+      correlationId: metadata.correlationId || crypto.randomUUID()
+    } : undefined;
+
+    const eventData = {
       type: event.type,
-      data: event.data,
-      metadata: event.metadata
-    });
-    await this.client.appendToStream(streamName, [eventData]);
+      data: event.data
+    };
+
+    if (eventMetadata) {
+      Object.assign(eventData, { metadata: eventMetadata });
+    }
+
+    const jsonEventData = jsonEvent(eventData);
+    await this.client.appendToStream(streamName, [jsonEventData]);
   }
 
   private async createSnapshot(aggregateId: string, state: S, version: number): Promise<void> {

@@ -121,6 +121,50 @@ describe('StreamHelper', () => {
         [expectedEvent]
       );
     });
+
+    const testEvent: TestEvent = {
+      type: 'valueUpdated',
+      data: { value: 42 }
+    };
+
+    it('should append event without metadata', async () => {
+      await streamHelper.appendEvent('test-id', testEvent);
+      
+      expect(client.appendToStream).toHaveBeenCalledWith(
+        'test-test-id',
+        [expect.any(Object)]
+      );
+      expect(jsonEvent).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          metadata: expect.anything()
+        })
+      );
+    });
+
+    it('should append event with metadata when provided', async () => {
+      const metadata = {
+        correlationId: 'test-correlation',
+        customField: 'test-value'
+      };
+
+      await streamHelper.appendEvent('test-id', testEvent, metadata);
+      
+      expect(client.appendToStream).toHaveBeenCalledWith(
+        'test-test-id',
+        [expect.any(Object)]
+      );
+      expect(jsonEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: testEvent.type,
+          data: testEvent.data,
+          metadata: expect.objectContaining({
+            correlationId: metadata.correlationId,
+            customField: metadata.customField,
+            timestamp: expect.any(String)
+          })
+        })
+      );
+    });
   });
 
   describe('readFromSnapshot', () => {
