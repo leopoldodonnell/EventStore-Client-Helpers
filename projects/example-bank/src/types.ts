@@ -1,3 +1,5 @@
+import type { EventMetadata } from '@eventstore-helpers/core';
+
 export interface BankAccount {
   id: string;
   balance: number;
@@ -27,3 +29,9 @@ export type AccountEvent =
         amount: number;
       };
     };
+
+export interface TransactionMetadata extends EventMetadata {
+  userId: string;
+  source: string;
+  transactionId: string;
+}

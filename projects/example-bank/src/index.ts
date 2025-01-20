@@ -37,8 +37,8 @@ app.get('/accounts/:id', async (req, res) => {
 // Deposit money
 app.post('/accounts/:id/deposit', async (req, res) => {
   try {
-    const { amount } = req.body;
-    await accountAggregate.deposit(req.params.id, amount);
+    const { amount, userId } = req.body;
+    await accountAggregate.deposit(req.params.id, amount, userId);
     const account = await accountAggregate.getAccount(req.params.id);
     res.json(account);
   } catch (error) {
@@ -49,8 +49,8 @@ app.post('/accounts/:id/deposit', async (req, res) => {
 // Withdraw money
 app.post('/accounts/:id/withdraw', async (req, res) => {
   try {
-    const { amount } = req.body;
-    await accountAggregate.withdraw(req.params.id, amount);
+    const { amount, userId } = req.body;
+    await accountAggregate.withdraw(req.params.id, amount, userId);
     const account = await accountAggregate.getAccount(req.params.id);
     res.json(account);
   } catch (error) {

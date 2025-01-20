@@ -1,7 +1,7 @@
 import { EventStoreDBClient, StreamNotFoundError, ResolvedEvent, START, ReadRevision, jsonEvent } from '@eventstore/db-client';
 import { Snapshot, SnapshotEventType, StreamConfig, JSONEventType, EventMetadata } from './types';
 
-export class StreamHelper<E extends JSONEventType, S = any> {
+export class StreamHelper<E extends JSONEventType, S = any, M extends EventMetadata = EventMetadata> {
   private client: EventStoreDBClient;
   private config: StreamConfig;
 
@@ -49,7 +49,7 @@ export class StreamHelper<E extends JSONEventType, S = any> {
   async appendEvent(
     aggregateId: string,
     event: E,
-    metadata?: Partial<EventMetadata>
+    metadata?: Partial<M>
   ): Promise<void> {
     const streamName = `${this.config.streamPrefix}-${aggregateId}`;
     const eventMetadata = metadata ? {
@@ -58,16 +58,12 @@ export class StreamHelper<E extends JSONEventType, S = any> {
       correlationId: metadata.correlationId || crypto.randomUUID()
     } : undefined;
 
-    const eventData = {
+    const jsonEventData = jsonEvent({
       type: event.type,
-      data: event.data
-    };
+      data: event.data,
+      ...(eventMetadata && { metadata: eventMetadata })
+    });
 
-    if (eventMetadata) {
-      Object.assign(eventData, { metadata: eventMetadata });
-    }
-
-    const jsonEventData = jsonEvent(eventData);
     await this.client.appendToStream(streamName, [jsonEventData]);
   }
 

@@ -45,14 +45,14 @@ curl http://localhost:3000/accounts/{accountId}
 ```bash
 curl -X POST http://localhost:3000/accounts/{accountId}/deposit \
   -H "Content-Type: application/json" \
-  -d '{"amount": 500}'
+  -d '{"amount": 500, "userId": "user123"}'
 ```
 
 ### Withdraw Money
 ```bash
 curl -X POST http://localhost:3000/accounts/{accountId}/withdraw \
   -H "Content-Type: application/json" \
-  -d '{"amount": 200}'
+  -d '{"amount": 200, "userId": "user123"}'
 ```
 
 ## Implementation Details

@@ -1,19 +1,19 @@
 import { StreamHelper } from '@eventstore-helpers/core';
 import { EventStoreDBClient } from '@eventstore/db-client';
-import { AccountEvent, BankAccount } from './types';
+import { AccountEvent, BankAccount, TransactionMetadata } from './types';
 
 export class AccountAggregate {
-  private streamHelper: StreamHelper<AccountEvent, BankAccount>;
+  private streamHelper: StreamHelper<AccountEvent & { metadata?: TransactionMetadata }, BankAccount>;
   private static SNAPSHOT_FREQUENCY = 5;
 
   constructor(private client: EventStoreDBClient) {
-    this.streamHelper = new StreamHelper<AccountEvent, BankAccount>(client, {
+    this.streamHelper = new StreamHelper<AccountEvent & { metadata?: TransactionMetadata }, BankAccount>(client, {
       streamPrefix: 'bank-account',
       snapshotFrequency: AccountAggregate.SNAPSHOT_FREQUENCY,
     });
   }
 
-  private applyEvent(state: BankAccount | null, event: AccountEvent): BankAccount {
+  private applyEvent(state: BankAccount | null, event: AccountEvent & { metadata?: TransactionMetadata }): BankAccount {
     switch (event.type) {
       case 'AccountCreated':
         return {
@@ -49,30 +49,51 @@ export class AccountAggregate {
   }
 
   async createAccount(accountId: string, owner: string, initialBalance: number): Promise<void> {
-    const event: AccountEvent = {
+    const metadata: TransactionMetadata = {
+      userId: owner,
+      transactionId: crypto.randomUUID(),
+      source: 'web'
+    };
+
+    const event: AccountEvent & { metadata: TransactionMetadata } = {
       type: 'AccountCreated',
       data: {
         owner,
         initialBalance,
       },
+      metadata
     };
 
     await this.streamHelper.appendEvent(accountId, event);
   }
 
-  async deposit(accountId: string, amount: number): Promise<void> {
-    const event: AccountEvent = {
+  async deposit(accountId: string, amount: number, userId: string): Promise<void> {
+    const metadata: TransactionMetadata = {
+      userId,
+      transactionId: crypto.randomUUID(),
+      source: 'web'
+    };
+
+    const event: AccountEvent & { metadata: TransactionMetadata } = {
       type: 'MoneyDeposited',
       data: { amount },
+      metadata
     };
 
     await this.streamHelper.appendEvent(accountId, event);
   }
 
-  async withdraw(accountId: string, amount: number): Promise<void> {
-    const event: AccountEvent = {
+  async withdraw(accountId: string, amount: number, userId: string): Promise<void> {
+    const metadata: TransactionMetadata = {
+      userId,
+      transactionId: crypto.randomUUID(),
+      source: 'web'
+    };
+
+    const event: AccountEvent & { metadata: TransactionMetadata } = {
       type: 'MoneyWithdrawn',
       data: { amount },
+      metadata
     };
 
     await this.streamHelper.appendEvent(accountId, event);

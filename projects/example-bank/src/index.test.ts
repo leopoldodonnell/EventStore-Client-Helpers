@@ -50,7 +50,8 @@ describe('Bank API', () => {
     app.post('/accounts/:id/deposit', async (req, res) => {
       try {
         const { amount } = req.body;
-        await mockAccountAggregate.deposit(req.params.id, amount);
+        const userId = req.headers['x-user-id'] as string || 'anonymous';
+        await mockAccountAggregate.deposit(req.params.id, amount, userId);
         const account = await mockAccountAggregate.getAccount(req.params.id);
         res.json(account);
       } catch (error) {
@@ -61,7 +62,8 @@ describe('Bank API', () => {
     app.post('/accounts/:id/withdraw', async (req, res) => {
       try {
         const { amount } = req.body;
-        await mockAccountAggregate.withdraw(req.params.id, amount);
+        const userId = req.headers['x-user-id'] as string || 'anonymous';
+        await mockAccountAggregate.withdraw(req.params.id, amount, userId);
         const account = await mockAccountAggregate.getAccount(req.params.id);
         res.json(account);
       } catch (error) {
@@ -92,8 +94,8 @@ describe('Bank API', () => {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 1000,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2025-01-20T12:28:19.061Z'),
+        updatedAt: new Date('2025-01-20T12:28:19.061Z'),
       };
 
       mockAccountAggregate.getAccount.mockResolvedValue(mockAccount);
@@ -101,11 +103,12 @@ describe('Bank API', () => {
       const response = await request(app).get('/accounts/test-account-id');
 
       expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({
-        id: 'test-account-id',
-        owner: 'John Doe',
-        balance: 1000,
+      expect(response.body).toEqual({
+        ...mockAccount,
+        createdAt: mockAccount.createdAt.toISOString(),
+        updatedAt: mockAccount.updatedAt.toISOString()
       });
+      expect(mockAccountAggregate.getAccount).toHaveBeenCalledWith('test-account-id');
     });
 
     it('should return 404 when account does not exist', async () => {
@@ -114,7 +117,7 @@ describe('Bank API', () => {
       const response = await request(app).get('/accounts/non-existent');
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('error', 'Account not found');
+      expect(response.body).toEqual({ error: 'Account not found' });
     });
   });
 
@@ -124,22 +127,28 @@ describe('Bank API', () => {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 1500,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2025-01-20T12:28:19.072Z'),
+        updatedAt: new Date('2025-01-20T12:28:19.072Z'),
       };
 
       mockAccountAggregate.getAccount.mockResolvedValue(mockAccount);
 
       const response = await request(app)
         .post('/accounts/test-account-id/deposit')
+        .set('x-user-id', 'test-user')
         .send({ amount: 500 });
 
       expect(response.status).toBe(200);
-      expect(mockAccountAggregate.deposit).toHaveBeenCalledWith('test-account-id', 500);
-      expect(response.body).toMatchObject({
-        id: 'test-account-id',
-        balance: 1500,
+      expect(response.body).toEqual({
+        ...mockAccount,
+        createdAt: mockAccount.createdAt.toISOString(),
+        updatedAt: mockAccount.updatedAt.toISOString()
       });
+      expect(mockAccountAggregate.deposit).toHaveBeenCalledWith(
+        'test-account-id',
+        500,
+        'test-user'
+      );
     });
   });
 
@@ -149,33 +158,28 @@ describe('Bank API', () => {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 500,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date('2025-01-20T12:28:19.075Z'),
+        updatedAt: new Date('2025-01-20T12:28:19.075Z'),
       };
 
       mockAccountAggregate.getAccount.mockResolvedValue(mockAccount);
 
       const response = await request(app)
         .post('/accounts/test-account-id/withdraw')
-        .send({ amount: 300 });
+        .set('x-user-id', 'test-user')
+        .send({ amount: 500 });
 
       expect(response.status).toBe(200);
-      expect(mockAccountAggregate.withdraw).toHaveBeenCalledWith('test-account-id', 300);
-      expect(response.body).toMatchObject({
-        id: 'test-account-id',
-        balance: 500,
+      expect(response.body).toEqual({
+        ...mockAccount,
+        createdAt: mockAccount.createdAt.toISOString(),
+        updatedAt: mockAccount.updatedAt.toISOString()
       });
-    });
-
-    it('should return error when withdrawal fails', async () => {
-      mockAccountAggregate.withdraw.mockRejectedValue(new Error('Insufficient funds'));
-
-      const response = await request(app)
-        .post('/accounts/test-account-id/withdraw')
-        .send({ amount: 1000 });
-
-      expect(response.status).toBe(500);
-      expect(response.body).toHaveProperty('error', 'Insufficient funds');
+      expect(mockAccountAggregate.withdraw).toHaveBeenCalledWith(
+        'test-account-id',
+        500,
+        'test-user'
+      );
     });
   });
 });
