@@ -2,6 +2,7 @@ import request from 'supertest';
 import express from 'express';
 import { EventStoreDBClient } from '@eventstore/db-client';
 import { AccountAggregate } from './account';
+import { BankAccount } from './types';
 
 // Mock EventStoreDBClient and AccountAggregate
 jest.mock('@eventstore/db-client');
@@ -90,10 +91,11 @@ describe('Bank API', () => {
 
   describe('GET /accounts/:id', () => {
     it('should return account details when account exists', async () => {
-      const mockAccount = {
+      const mockAccount: BankAccount = {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 1000,
+        accountType: 'checking',
         createdAt: new Date('2025-01-20T12:28:19.061Z'),
         updatedAt: new Date('2025-01-20T12:28:19.061Z'),
       };
@@ -123,10 +125,11 @@ describe('Bank API', () => {
 
   describe('POST /accounts/:id/deposit', () => {
     it('should deposit money and return updated account', async () => {
-      const mockAccount = {
+      const mockAccount: BankAccount = {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 1500,
+        accountType: 'checking',
         createdAt: new Date('2025-01-20T12:28:19.072Z'),
         updatedAt: new Date('2025-01-20T12:28:19.072Z'),
       };
@@ -154,10 +157,11 @@ describe('Bank API', () => {
 
   describe('POST /accounts/:id/withdraw', () => {
     it('should withdraw money and return updated account', async () => {
-      const mockAccount = {
+      const mockAccount: BankAccount = {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 500,
+        accountType: 'checking',
         createdAt: new Date('2025-01-20T12:28:19.075Z'),
         updatedAt: new Date('2025-01-20T12:28:19.075Z'),
       };

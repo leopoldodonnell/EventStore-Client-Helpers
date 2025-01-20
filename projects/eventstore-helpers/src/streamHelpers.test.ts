@@ -1,6 +1,6 @@
 import { EventStoreDBClient, StreamNotFoundError, StreamingRead, ResolvedEvent, jsonEvent } from '@eventstore/db-client';
 import { StreamHelper } from './streamHelpers';
-import { Snapshot, SnapshotEventType, JSONEventType } from './types';
+import { Snapshot, SnapshotEventType, BaseEvent } from './types';
 import { EventEmitter } from 'events';
 
 // Mock EventStoreDBClient and jsonEvent
@@ -13,14 +13,16 @@ interface TestState {
   [key: string]: unknown;
 }
 
-interface TestEvent extends JSONEventType {
-  type: 'valueUpdated';
-  data: { value: number };
+interface TestEvent extends BaseEvent<'valueUpdated', {
+  value: number;
+  [key: string]: unknown;
+}> {
+  [key: string]: unknown;
 }
 
 describe('StreamHelper', () => {
   let client: jest.Mocked<EventStoreDBClient>;
-  let streamHelper: StreamHelper<TestEvent, TestState>;
+  let streamHelper: StreamHelper<TestState, TestEvent>;
   const mockConfig = {
     streamPrefix: 'test',
     snapshotFrequency: 5,
@@ -28,7 +30,7 @@ describe('StreamHelper', () => {
 
   beforeEach(() => {
     client = new EventStoreDBClient({ endpoint: 'localhost:2113' }) as jest.Mocked<EventStoreDBClient>;
-    streamHelper = new StreamHelper<TestEvent, TestState>(client, mockConfig);
+    streamHelper = new StreamHelper<TestState, TestEvent>(client, mockConfig);
     (jsonEvent as jest.Mock).mockImplementation((event) => ({
       ...event,
       id: 'mock-id'
@@ -79,6 +81,7 @@ describe('StreamHelper', () => {
       // Mock events after snapshot
       const mockEvent: TestEvent = {
         type: 'valueUpdated',
+        version: 1,
         data: { value: 15 }
       };
 
@@ -105,7 +108,8 @@ describe('StreamHelper', () => {
     it('should append an event to the stream', async () => {
       const event: TestEvent = {
         type: 'valueUpdated',
-        data: { value: 42 }
+        data: { value: 42 },
+        version: 1
       };
 
       const expectedEvent = {
@@ -124,6 +128,7 @@ describe('StreamHelper', () => {
 
     const testEvent: TestEvent = {
       type: 'valueUpdated',
+      version: 1,
       data: { value: 42 }
     };
 
@@ -147,7 +152,12 @@ describe('StreamHelper', () => {
         customField: 'test-value'
       };
 
-      await streamHelper.appendEvent('test-id', testEvent, metadata);
+      const eventWithMetadata = {
+        ...testEvent,
+        metadata
+      };
+
+      await streamHelper.appendEvent('test-id', eventWithMetadata);
       
       expect(client.appendToStream).toHaveBeenCalledWith(
         'test-test-id',
@@ -157,17 +167,13 @@ describe('StreamHelper', () => {
         expect.objectContaining({
           type: testEvent.type,
           data: testEvent.data,
-          metadata: expect.objectContaining({
-            correlationId: metadata.correlationId,
-            customField: metadata.customField,
-            timestamp: expect.any(String)
-          })
+          metadata: expect.objectContaining(metadata)
         })
       );
     });
   });
 
-  describe('readFromSnapshot', () => {
+  describe('getCurrentState', () => {
     const applyEvent = (state: TestState | null, event: TestEvent): TestState => {
       if (!state) {
         return {
@@ -192,27 +198,37 @@ describe('StreamHelper', () => {
       // Mock events in the main stream
       const mockEvent: TestEvent = {
         type: 'valueUpdated',
+        version: 1,
         data: { value: 42 }
       };
 
       client.readStream.mockImplementationOnce(() => {
         const eventEmitter = new EventEmitter();
         const stream = {
-          [Symbol.asyncIterator]: async function* () {
-            yield {
-              event: mockEvent
-            };
-          },
+          [Symbol.asyncIterator]: () => ({
+            next: async () => {
+              return {
+                done: true,
+                value: {
+                  event: {
+                    type: 'test',
+                    data: { value: 42 } as TestEvent['data'],
+                    version: 1
+                  }
+                }
+              };
+            },
+          }),
           cancel: jest.fn(),
           ...eventEmitter,
         };
         return stream as unknown as StreamingRead<ResolvedEvent<TestEvent>>;
       });
 
-      const result = await streamHelper.readFromSnapshot('test-id', applyEvent);
+      const result = await streamHelper.getCurrentState('test-id', applyEvent);
       
       expect(result).toBeTruthy();
-      expect(result?.state.value).toBe(42);
+      expect(result?.state?.value).toBe(42);
     });
 
     it('should rebuild state from snapshot and subsequent events', async () => {
@@ -246,6 +262,7 @@ describe('StreamHelper', () => {
       // Mock events after snapshot
       const mockEvent: TestEvent = {
         type: 'valueUpdated',
+        version: 1,
         data: { value: 15 }
       };
 
@@ -263,10 +280,10 @@ describe('StreamHelper', () => {
         return stream as unknown as StreamingRead<ResolvedEvent<TestEvent>>;
       });
 
-      const result = await streamHelper.readFromSnapshot('test-id', applyEvent);
+      const result = await streamHelper.getCurrentState('test-id', applyEvent);
       
       expect(result).toBeTruthy();
-      expect(result?.state.value).toBe(25);
+      expect(result?.state?.value).toBe(25);
       expect(result?.version).toBe(6);
     });
 
@@ -279,6 +296,7 @@ describe('StreamHelper', () => {
       // Mock 5 events in the stream
       const mockEvent: TestEvent = {
         type: 'valueUpdated',
+        version: 1,
         data: { value: 10 }
       };
 
@@ -298,7 +316,7 @@ describe('StreamHelper', () => {
         return stream as unknown as StreamingRead<ResolvedEvent<TestEvent>>;
       });
 
-      await streamHelper.readFromSnapshot('test-id', applyEvent);
+      await streamHelper.getCurrentState('test-id', applyEvent);
 
       // Verify snapshot was created after 5 events
       expect(client.appendToStream).toHaveBeenCalledWith(

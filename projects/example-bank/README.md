@@ -4,11 +4,12 @@ This is an example application demonstrating the usage of `@eventstore-helpers/c
 
 ## Features
 
-- Create bank accounts
-- Deposit money
-- Withdraw money
+- Create bank accounts (savings or checking)
+- Deposit money with optional description
+- Withdraw money with optional description
 - View account details
 - Automatic snapshots every 5 events
+- Event versioning and migration support
 
 ## Getting Started
 
@@ -33,7 +34,11 @@ npm run dev
 ```bash
 curl -X POST http://localhost:3000/accounts \
   -H "Content-Type: application/json" \
-  -d '{"owner": "John Doe", "initialBalance": 1000}'
+  -d '{
+    "owner": "John Doe",
+    "initialBalance": 1000,
+    "accountType": "savings"  // Optional, defaults to "checking"
+  }'
 ```
 
 ### Get Account Details
@@ -45,14 +50,22 @@ curl http://localhost:3000/accounts/{accountId}
 ```bash
 curl -X POST http://localhost:3000/accounts/{accountId}/deposit \
   -H "Content-Type: application/json" \
-  -d '{"amount": 500, "userId": "user123"}'
+  -d '{
+    "amount": 500,
+    "userId": "user123",
+    "description": "Birthday gift"  // Optional
+  }'
 ```
 
 ### Withdraw Money
 ```bash
 curl -X POST http://localhost:3000/accounts/{accountId}/withdraw \
   -H "Content-Type: application/json" \
-  -d '{"amount": 200, "userId": "user123"}'
+  -d '{
+    "amount": 200,
+    "userId": "user123",
+    "description": "ATM withdrawal"  // Optional
+  }'
 ```
 
 ## Implementation Details
@@ -63,8 +76,26 @@ This example demonstrates:
 3. Automatic snapshotting for performance optimization
 4. RESTful API design
 5. Error handling and validation
+6. Event versioning and migration support
 
 The application uses the `StreamHelper` class from `@eventstore-helpers/core` to:
 - Manage event streams for each bank account
 - Handle snapshots automatically
 - Rebuild account state from events and snapshots
+- Migrate events between versions
+
+### Event Versioning
+
+The application supports versioned events with automatic migration capabilities:
+
+- **Version 1**: Basic events with core fields
+  - AccountCreated: owner, initialBalance
+  - MoneyDeposited: amount
+  - MoneyWithdrawn: amount
+
+- **Version 2**: Enhanced events with additional fields
+  - AccountCreated: added accountType (savings/checking)
+  - MoneyDeposited: added optional description
+  - MoneyWithdrawn: added optional description
+
+Events are automatically migrated to the latest version when retrieved from the event store. The migration system is extensible, allowing for future versions to be added with custom migration logic.

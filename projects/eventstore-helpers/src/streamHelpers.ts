@@ -1,13 +1,48 @@
 import { EventStoreDBClient, StreamNotFoundError, ResolvedEvent, START, ReadRevision, jsonEvent } from '@eventstore/db-client';
-import { Snapshot, SnapshotEventType, StreamConfig, JSONEventType, EventMetadata } from './types';
+import { 
+  Snapshot, 
+  SnapshotEventType, 
+  StreamConfig, 
+  JSONEventType, 
+  EventMetadata, 
+  BaseEvent,
+  EventMigration,
+  JSONType
+} from './types';
 
-export class StreamHelper<E extends JSONEventType, S = any, M extends EventMetadata = EventMetadata> {
+export class StreamHelper<S extends JSONType, E extends BaseEvent<string, JSONType>> {
   private client: EventStoreDBClient;
   private config: StreamConfig;
 
   constructor(client: EventStoreDBClient, config: StreamConfig) {
     this.client = client;
-    this.config = config;
+    this.config = {
+      ...config,
+      currentEventVersion: config.currentEventVersion ?? 1,
+      eventMigrations: config.eventMigrations ?? [],
+    };
+  }
+
+  private migrateEventIfNeeded(event: E & { version?: number }): E {
+    if (!this.config.eventMigrations?.length || !this.config.currentEventVersion) {
+      return event;
+    }
+
+    const eventVersion = event.version ?? 0;  // Default to 0 if version is undefined
+    if (eventVersion < this.config.currentEventVersion) {
+      // Find applicable migrations
+      const eventMigrations = this.config.eventMigrations.filter(
+        m => m.eventType === event.type && 
+        (eventVersion >= m.fromVersion && m.toVersion <= this.config.currentEventVersion!)
+      );
+
+      // Apply migrations in sequence
+      return eventMigrations.reduce((e, migration) => migration.migrate(e as any), {
+        ...event,
+        version: eventVersion, 
+      } as E);
+    }
+    return event;
   }
 
   private async readEvents(streamName: string, fromRevision: ReadRevision = START): Promise<ResolvedEvent[]> {
@@ -49,88 +84,95 @@ export class StreamHelper<E extends JSONEventType, S = any, M extends EventMetad
   async appendEvent(
     aggregateId: string,
     event: E,
-    metadata?: Partial<M>
+    expectedRevision?: bigint
   ): Promise<void> {
     const streamName = `${this.config.streamPrefix}-${aggregateId}`;
-    const eventMetadata = metadata ? {
-      ...metadata,
-      timestamp: metadata.timestamp || new Date().toISOString(),
-      correlationId: metadata.correlationId || crypto.randomUUID()
-    } : undefined;
+    const versionedEvent = {
+      ...event,
+      version: this.config.currentEventVersion,
+    };
 
-    const jsonEventData = jsonEvent({
-      type: event.type,
-      data: event.data,
-      ...(eventMetadata && { metadata: eventMetadata })
-    });
+    await this.client.appendToStream(
+      streamName,
+      jsonEvent({
+        type: versionedEvent.type,
+        data: versionedEvent.data,
+        metadata: versionedEvent.metadata,
+      }),
+      { expectedRevision }
+    );
 
-    await this.client.appendToStream(streamName, [jsonEventData]);
-  }
-
-  private async createSnapshot(aggregateId: string, state: S, version: number): Promise<void> {
-    if (!this.config.snapshotFrequency) return;
-    
-    const snapshotStreamName = `${this.config.streamPrefix}-${aggregateId}-snapshot`;
-    const snapshotEvent = jsonEvent<SnapshotEventType>({
-      type: 'snapshot',
-      data: {
-        state,
-        version,
-        timestamp: new Date().toISOString()
+    // Check if we need to create a snapshot
+    if (this.config.snapshotFrequency) {
+      const events = await this.readEvents(streamName);
+      if (events.length % this.config.snapshotFrequency === 0) {
+        await this.createSnapshot(aggregateId, events);
       }
-    });
-    await this.client.appendToStream(snapshotStreamName, [snapshotEvent]);
+    }
   }
 
-  async readFromSnapshot(
+  async getCurrentState(
     aggregateId: string,
-    applyEvent: (state: S | null, event: E) => S
-  ): Promise<{ state: S; version: number } | null> {
-    let currentState: S | null = null;
-    let version = 0;
-
-    // Try to get the latest snapshot
+    applyEvent: (state: S | null, event: E) => NonNullable<S>
+  ): Promise<{ state: S | null, version: number } | null> {
     const snapshot = await this.getLatestSnapshot(aggregateId);
-    if (snapshot) {
-      currentState = snapshot.state as S;
-      version = snapshot.version;
-    }
+    let state = snapshot?.state ?? null;
+    let fromRevision: ReadRevision = snapshot ? BigInt(snapshot.version) + 1n : START;
+    let version = snapshot?.version ?? 0;
 
-    // Read all events after the snapshot
     const streamName = `${this.config.streamPrefix}-${aggregateId}`;
     try {
-      const events = await this.readEvents(streamName, version ? BigInt(version) : START);
-      
+      const events = await this.readEvents(streamName, fromRevision);
+
       for (const resolvedEvent of events) {
         if (resolvedEvent.event) {
-          const eventData = {
-            type: resolvedEvent.event.type,
-            data: resolvedEvent.event.data,
-            metadata: resolvedEvent.event.metadata
-          } as E;
-          currentState = applyEvent(currentState, eventData);
+          const event = resolvedEvent.event as unknown as E;
+          const migratedEvent = this.migrateEventIfNeeded(event);
+          state = applyEvent(state, migratedEvent);
           version++;
-
-          // Create snapshot if we've reached the snapshot frequency
-          if (this.config.snapshotFrequency && version % this.config.snapshotFrequency === 0 && currentState) {
-            await this.createSnapshot(aggregateId, currentState, version);
-          }
         }
       }
 
-      if (!currentState) {
-        return null;
-      }
-
-      return {
-        state: currentState,
-        version,
-      };
+      return { state, version };
     } catch (error) {
-      if (error instanceof StreamNotFoundError && !currentState) {
+      if (error instanceof StreamNotFoundError) {
         return null;
       }
       throw error;
     }
+  }
+
+  private async createSnapshot(
+    aggregateId: string,
+    events: ResolvedEvent[]
+  ): Promise<void> {
+    const snapshotStreamName = `${this.config.streamPrefix}-${aggregateId}-snapshot`;
+    const snapshot: Snapshot<S> = {
+      version: events.length,
+      state: events.reduce((state, event) => {
+        if (event.event) {
+          const rawEvent = event.event as unknown as E;
+          const migratedEvent = this.migrateEventIfNeeded(rawEvent);
+          return this.applyEvent(state, migratedEvent);
+        }
+        return state;
+      }, null as S | null) as S,
+      timestamp: new Date().toISOString(),
+    };
+
+    await this.client.appendToStream(
+      snapshotStreamName,
+      jsonEvent({
+        type: 'snapshot',
+        data: snapshot,
+      })
+    );
+  }
+
+  private applyEvent(state: S | null, event: E): S {
+    if (typeof event.data !== 'object' || !event.data) {
+      throw new Error('Event data must be a non-null object');
+    }
+    return event.data as S;
   }
 }

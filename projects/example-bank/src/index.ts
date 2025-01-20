@@ -1,6 +1,7 @@
 import express from 'express';
 import { EventStoreDBClient } from '@eventstore/db-client';
 import { AccountAggregate } from './account';
+import crypto from 'crypto';
 
 const app = express();
 app.use(express.json());
@@ -11,10 +12,11 @@ const accountAggregate = new AccountAggregate(client);
 // Create a new account
 app.post('/accounts', async (req, res) => {
   try {
-    const { owner, initialBalance } = req.body;
-    const accountId = Math.random().toString(36).substring(7);
-    await accountAggregate.createAccount(accountId, owner, initialBalance);
-    res.json({ accountId });
+    const { owner, initialBalance, accountType } = req.body;
+    const accountId = crypto.randomUUID();
+    await accountAggregate.createAccount(accountId, owner, initialBalance, accountType);
+    const account = await accountAggregate.getAccount(accountId);
+    res.json(account);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -37,8 +39,8 @@ app.get('/accounts/:id', async (req, res) => {
 // Deposit money
 app.post('/accounts/:id/deposit', async (req, res) => {
   try {
-    const { amount, userId } = req.body;
-    await accountAggregate.deposit(req.params.id, amount, userId);
+    const { amount, userId, description } = req.body;
+    await accountAggregate.deposit(req.params.id, amount, userId, description);
     const account = await accountAggregate.getAccount(req.params.id);
     res.json(account);
   } catch (error) {
@@ -49,8 +51,8 @@ app.post('/accounts/:id/deposit', async (req, res) => {
 // Withdraw money
 app.post('/accounts/:id/withdraw', async (req, res) => {
   try {
-    const { amount, userId } = req.body;
-    await accountAggregate.withdraw(req.params.id, amount, userId);
+    const { amount, userId, description } = req.body;
+    await accountAggregate.withdraw(req.params.id, amount, userId, description);
     const account = await accountAggregate.getAccount(req.params.id);
     res.json(account);
   } catch (error) {

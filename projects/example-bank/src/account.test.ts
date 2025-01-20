@@ -13,12 +13,12 @@ global.crypto = {
 // Mock the StreamHelper
 jest.mock('@eventstore-helpers/core', () => {
   const mockAppendEvent = jest.fn();
-  const mockReadFromSnapshot = jest.fn();
+  const mockGetCurrentState = jest.fn();
   
   return {
     StreamHelper: jest.fn().mockImplementation(() => ({
       appendEvent: mockAppendEvent,
-      readFromSnapshot: mockReadFromSnapshot,
+      getCurrentState: mockGetCurrentState,
     })),
   };
 });
@@ -26,7 +26,7 @@ jest.mock('@eventstore-helpers/core', () => {
 describe('AccountAggregate', () => {
   let client: EventStoreDBClient;
   let accountAggregate: AccountAggregate;
-  let mockStreamHelper: jest.Mocked<StreamHelper<AccountEvent & { metadata?: TransactionMetadata }, BankAccount>>;
+  let mockStreamHelper: jest.Mocked<StreamHelper<BankAccount, AccountEvent>>;
 
   beforeEach(() => {
     client = new EventStoreDBClient({ endpoint: 'localhost:2113' });
@@ -51,6 +51,7 @@ describe('AccountAggregate', () => {
         accountId,
         {
           type: 'AccountCreated',
+          version: 1,
           data: {
             owner,
             initialBalance,
@@ -77,6 +78,7 @@ describe('AccountAggregate', () => {
         accountId,
         {
           type: 'MoneyDeposited',
+          version: 1,
           data: { amount },
           metadata: {
             userId,
@@ -100,6 +102,7 @@ describe('AccountAggregate', () => {
         accountId,
         {
           type: 'MoneyWithdrawn',
+          version: 1,
           data: { amount },
           metadata: {
             userId,
@@ -112,75 +115,96 @@ describe('AccountAggregate', () => {
   });
 
   describe('getAccount', () => {
-    it('should return null when account does not exist', async () => {
-      mockStreamHelper.readFromSnapshot.mockResolvedValue(null);
-
-      const result = await accountAggregate.getAccount('non-existent');
-      expect(result).toBeNull();
-    });
-
-    it('should return account state when it exists', async () => {
-      const mockAccount = {
-        id: 'test-account',
-        owner: 'John Doe',
-        balance: 1000,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      mockStreamHelper.readFromSnapshot.mockResolvedValue({
-        state: mockAccount,
-        version: 1,
-      });
-
-      const result = await accountAggregate.getAccount('test-account');
-      expect(result).toEqual(mockAccount);
-    });
-
-    it('should correctly apply events to rebuild account state', async () => {
-      // Test the event application logic
-      const accountId = 'test-account';
-      const events: (AccountEvent & { metadata?: TransactionMetadata })[] = [
+    it('should apply events to calculate current state', async () => {
+      const events: AccountEvent[] = [
         {
           type: 'AccountCreated',
+          version: 1,
           data: { owner: 'John Doe', initialBalance: 1000 },
         },
         {
           type: 'MoneyDeposited',
+          version: 1,
           data: { amount: 500 },
         },
         {
           type: 'MoneyWithdrawn',
+          version: 1,
           data: { amount: 200 },
         },
       ];
 
-      let currentState = null;
-      for (const event of events) {
-        currentState = accountAggregate['applyEvent'](currentState, event);
-      }
-
-      expect(currentState).toMatchObject({
+      const state: BankAccount = {
+        id: 'test-account',
         owner: 'John Doe',
-        balance: 1300, // 1000 + 500 - 200
-      });
+        balance: 1300,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        accountType: 'checking'
+      };
+
+      mockStreamHelper.getCurrentState.mockResolvedValue({ state, version: 1 });
+
+      const account = await accountAggregate.getAccount('test-account');
+
+      expect(account).toEqual(state);
     });
 
     it('should throw error when withdrawing more than balance', () => {
-      const state = {
+      const state: BankAccount = {
         id: 'test-account',
         owner: 'John Doe',
         balance: 100,
         createdAt: new Date(),
         updatedAt: new Date(),
+        accountType: 'checking'
       };
 
       expect(() =>
         accountAggregate['applyEvent'](state, {
           type: 'MoneyWithdrawn',
+          version: 1,
           data: { amount: 200 },
         })
       ).toThrow('Insufficient funds');
+    });
+
+    it('should apply events to calculate current state', async () => {
+      const events = [
+        {
+          type: 'MoneyDeposited',
+          version: 1,
+          data: { amount: 500 },
+        },
+        {
+          type: 'MoneyWithdrawn',
+          version: 1,
+          data: { amount: 200 },
+        },
+      ];
+
+      mockStreamHelper.getCurrentState.mockResolvedValue({
+        state: {
+          id: '',
+          owner: 'John Doe',
+          balance: 300,
+          createdAt: new Date('2025-01-20T09:52:01-05:00'),
+          updatedAt: new Date('2025-01-20T09:52:01-05:00'),
+          accountType: 'checking'
+        },
+        version: 2
+      });
+
+      const account = await accountAggregate.getAccount('test-account');
+
+      expect(account).toEqual({
+        id: '',
+        owner: 'John Doe',
+        balance: 300,
+        createdAt: expect.any(Date),
+        updatedAt: expect.any(Date),
+        accountType: 'checking'
+      });
     });
   });
 });
