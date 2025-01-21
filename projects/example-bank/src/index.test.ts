@@ -95,9 +95,17 @@ describe('Bank API', () => {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 1000,
+        version: 1,
         accountType: 'checking',
-        createdAt: new Date('2025-01-20T12:28:19.061Z'),
-        updatedAt: new Date('2025-01-20T12:28:19.061Z'),
+        createdAt: '2025-01-20T17:11:19-05:00',
+        updatedAt: '2025-01-20T17:11:19-05:00',
+        type: 'BankAccount',
+        data: {
+          id: 'test-account-id',
+          owner: 'John Doe',
+          balance: 1000,
+          accountType: 'checking'
+        }
       };
 
       mockAccountAggregate.getAccount.mockResolvedValue(mockAccount);
@@ -105,11 +113,7 @@ describe('Bank API', () => {
       const response = await request(app).get('/accounts/test-account-id');
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
-        ...mockAccount,
-        createdAt: mockAccount.createdAt.toISOString(),
-        updatedAt: mockAccount.updatedAt.toISOString()
-      });
+      expect(response.body).toEqual(mockAccount);
       expect(mockAccountAggregate.getAccount).toHaveBeenCalledWith('test-account-id');
     });
 
@@ -129,9 +133,17 @@ describe('Bank API', () => {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 1500,
+        version: 1,
         accountType: 'checking',
-        createdAt: new Date('2025-01-20T12:28:19.072Z'),
-        updatedAt: new Date('2025-01-20T12:28:19.072Z'),
+        createdAt: '2025-01-20T17:11:19-05:00',
+        updatedAt: '2025-01-20T17:11:19-05:00',
+        type: 'BankAccount',
+        data: {
+          id: 'test-account-id',
+          owner: 'John Doe',
+          balance: 1500,
+          accountType: 'checking'
+        }
       };
 
       mockAccountAggregate.getAccount.mockResolvedValue(mockAccount);
@@ -142,11 +154,7 @@ describe('Bank API', () => {
         .send({ amount: 500 });
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
-        ...mockAccount,
-        createdAt: mockAccount.createdAt.toISOString(),
-        updatedAt: mockAccount.updatedAt.toISOString()
-      });
+      expect(response.body).toEqual(mockAccount);
       expect(mockAccountAggregate.deposit).toHaveBeenCalledWith(
         'test-account-id',
         500,
@@ -161,9 +169,17 @@ describe('Bank API', () => {
         id: 'test-account-id',
         owner: 'John Doe',
         balance: 500,
+        version: 1,
         accountType: 'checking',
-        createdAt: new Date('2025-01-20T12:28:19.075Z'),
-        updatedAt: new Date('2025-01-20T12:28:19.075Z'),
+        createdAt: '2025-01-20T17:11:19-05:00',
+        updatedAt: '2025-01-20T17:11:19-05:00',
+        type: 'BankAccount',
+        data: {
+          id: 'test-account-id',
+          owner: 'John Doe',
+          balance: 500,
+          accountType: 'checking'
+        }
       };
 
       mockAccountAggregate.getAccount.mockResolvedValue(mockAccount);
@@ -174,11 +190,7 @@ describe('Bank API', () => {
         .send({ amount: 500 });
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
-        ...mockAccount,
-        createdAt: mockAccount.createdAt.toISOString(),
-        updatedAt: mockAccount.updatedAt.toISOString()
-      });
+      expect(response.body).toEqual(mockAccount);
       expect(mockAccountAggregate.withdraw).toHaveBeenCalledWith(
         'test-account-id',
         500,

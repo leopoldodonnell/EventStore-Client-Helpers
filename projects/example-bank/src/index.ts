@@ -2,12 +2,20 @@ import express from 'express';
 import { EventStoreDBClient } from '@eventstore/db-client';
 import { AccountAggregate } from './account';
 import crypto from 'crypto';
+import { StreamHelper } from '@eventstore-helpers/core';
+import { migrations } from './migrations';
+import { BankAccount, AccountEventV1, AccountEventV2 } from './types';
 
 const app = express();
 app.use(express.json());
 
 const client = EventStoreDBClient.connectionString('esdb://localhost:2113?tls=false');
-const accountAggregate = new AccountAggregate(client);
+const streamHelper = new StreamHelper<BankAccount, AccountEventV1 | AccountEventV2>(client, {
+  snapshotFrequency: 5,
+  currentEventVersion: 1,
+  eventMigrations: migrations as any // TODO: Improve type safety here
+});
+const accountAggregate = new AccountAggregate(streamHelper);
 
 // Create a new account
 app.post('/accounts', async (req, res) => {

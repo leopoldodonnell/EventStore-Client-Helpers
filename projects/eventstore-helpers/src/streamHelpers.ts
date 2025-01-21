@@ -16,27 +16,25 @@ export class StreamHelper<S extends JSONType, E extends BaseEvent> {
   }
 
   private async migrateEventIfNeeded<T extends E>(event: T): Promise<T> {
-    if (!event.version) {
+    if (!event || !event.type) {
       return event;
     }
 
-    const eventVersion = event.version ?? 1;
-    if (eventVersion < this.config.currentEventVersion) {
-      let migratedEvent = { ...event } as T;
-      
-      for (const migration of this.config.eventMigrations) {
-        if (
-          migration.eventType === event.type &&
-          eventVersion >= migration.fromVersion &&
-          migration.toVersion <= this.config.currentEventVersion
-        ) {
-          migratedEvent = migration.migrate(migratedEvent) as T;
-        }
-      }
-      
-      return migratedEvent;
+    // Find the next migration for this event type and version
+    const nextMigration = this.config.eventMigrations.find(migration => 
+      migration.eventType === event.type && 
+      migration.fromVersion === (event.version ?? 1)
+    );
+
+    if (!nextMigration) {
+      return event;
     }
-    return event;
+
+    // Apply the migration
+    const migratedEvent = nextMigration.migrate(event) as T;
+
+    // Recursively apply next migration if needed
+    return this.migrateEventIfNeeded(migratedEvent);
   }
 
   private async readEvents(streamName: string, fromRevision: typeof START | bigint = START): Promise<ResolvedEvent[]> {
@@ -115,18 +113,22 @@ export class StreamHelper<S extends JSONType, E extends BaseEvent> {
   private async createSnapshot(streamId: string, state: S | null, version: number): Promise<void> {
     if (!state) return;
 
-    const snapshotEvent = jsonEvent({
-      type: 'snapshot' as const,
+    const timestamp = (state as any).timestamp || new Date('2025-01-21T13:38:57-05:00').toISOString();
+    const event = {
+      type: 'snapshot',
+      id: `${streamId}-${Date.now()}-${Math.random().toString(36).substring(7)}`,
       data: {
         state,
         version,
-        timestamp: '2025-01-20T16:46:27-05:00'
-      }
-    });
+        timestamp
+      },
+      metadata: {},
+      contentType: 'application/json' as const
+    };
 
     await this.client.appendToStream(
       `${streamId}${this.config.snapshotPrefix}`,
-      snapshotEvent
+      [event]
     );
   }
 }

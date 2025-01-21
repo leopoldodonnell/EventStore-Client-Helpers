@@ -1,5 +1,6 @@
 import { EventMigration } from '@eventstore-helpers/core';
 import { AccountEventV1, AccountEventV2 } from './types';
+import crypto from 'crypto';
 
 // Example migration from V1 to V2 for AccountCreated event
 export const accountCreatedV1ToV2: EventMigration<
@@ -30,6 +31,7 @@ export const moneyDepositedV1ToV2: EventMigration<
   migrate: (event) => ({
     type: event.type,
     version: 2,
+    transactionId: `migrated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     data: {
       ...event.data,
       description: 'Migrated from V1',  // Add default description
@@ -48,6 +50,7 @@ export const moneyWithdrawnV1ToV2: EventMigration<
   migrate: (event) => ({
     type: event.type,
     version: 2,
+    transactionId: crypto.randomUUID(),
     data: {
       ...event.data,
       description: 'Migrated from V1',  // Add default description
@@ -60,4 +63,4 @@ export const migrations = [
   accountCreatedV1ToV2,
   moneyDepositedV1ToV2,
   moneyWithdrawnV1ToV2,
-] as const;
+];

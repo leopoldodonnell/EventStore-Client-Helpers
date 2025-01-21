@@ -24,13 +24,13 @@ const applyEvent = (state: TestState | null, event: TestEvent): TestState => {
     return {
       id: '1',
       value: event.data.value,
-      timestamp: '2025-01-20T16:46:27-05:00'
+      timestamp: '2025-01-21T07:04:17-05:00'
     };
   }
   return {
     ...state,
     value: state.value + event.data.value,
-    timestamp: '2025-01-20T16:46:27-05:00'
+    timestamp: '2025-01-21T07:04:17-05:00'
   };
 };
 
@@ -101,6 +101,60 @@ describe('StreamHelper', () => {
       expect(result.data.value).toBe(11); // (5 * 2) + 1
       expect(result.version).toBe(3);
     });
+
+    it('should skip migrations when event version is current', async () => {
+      const mockEvent: TestEvent = {
+        type: 'valueUpdated',
+        data: { value: 5 },
+        version: 2
+      };
+
+      const migrations: EventMigration<TestEvent>[] = [
+        {
+          fromVersion: 1,
+          toVersion: 2,
+          eventType: 'valueUpdated',
+          migrate: jest.fn()
+        }
+      ];
+
+      const streamHelper = new StreamHelper<TestState, TestEvent>(client, {
+        ...mockConfig,
+        currentEventVersion: 2,
+        eventMigrations: migrations
+      });
+
+      const result = await streamHelper['migrateEventIfNeeded'](mockEvent);
+      expect(result).toBe(mockEvent);
+      expect(migrations[0].migrate).not.toHaveBeenCalled();
+    });
+
+    it('should skip migrations for different event versions', async () => {
+      const mockEvent: TestEvent = {
+        type: 'valueUpdated',
+        data: { value: 5 },
+        version: 3
+      };
+
+      const migrations: EventMigration<TestEvent>[] = [
+        {
+          fromVersion: 1,
+          toVersion: 2,
+          eventType: 'valueUpdated',
+          migrate: jest.fn()
+        }
+      ];
+
+      const streamHelper = new StreamHelper<TestState, TestEvent>(client, {
+        ...mockConfig,
+        currentEventVersion: 2,
+        eventMigrations: migrations
+      });
+
+      const result = await streamHelper['migrateEventIfNeeded'](mockEvent);
+      expect(result).toBe(mockEvent);
+      expect(migrations[0].migrate).not.toHaveBeenCalled();
+    });
   });
 
   describe('getCurrentState', () => {
@@ -127,18 +181,70 @@ describe('StreamHelper', () => {
 
   describe('getCurrentState with non-nullable return type', () => {
     it('should return null when stream not found and using non-nullable type', async () => {
-      client.readStream.mockImplementationOnce(() => {
-        throw new StreamNotFoundError();
-      });
+      client.readStream.mockImplementation(() => ({
+        [Symbol.asyncIterator]: async function* () {
+          throw new StreamNotFoundError({
+            code: 5,
+            details: 'Stream not found',
+            metadata: {} as any,
+            name: 'StreamNotFoundError',
+            message: 'Stream not found'
+          });
+        }
+      } as any));
 
       const result = await streamHelper.getCurrentState('test', applyEvent);
-      expect(result).toEqual({ state: null, version: 0 });
+      expect(result.state).toBeNull();
+      expect(result.version).toBe(0);
     });
   });
 
   describe('snapshot creation', () => {
     it('should create snapshot when event count matches frequency', async () => {
-      const mockEvents = Array(5).fill({
+      const mockEvents = Array(5).fill(null).map((_, i) => ({
+        event: {
+          type: 'valueUpdated',
+          data: { value: 5 * (i + 1) },
+          version: 1
+        }
+      }));
+
+      client.readStream.mockImplementation(() => ({
+        [Symbol.asyncIterator]: async function* () {
+          for (const event of mockEvents) {
+            yield event;
+          }
+        }
+      } as any));
+
+      client.appendToStream.mockResolvedValue({
+        success: true,
+        nextExpectedRevision: 1n,
+        position: { commit: 1n, prepare: 1n }
+      });
+
+      await streamHelper.getCurrentState('test', applyEvent);
+
+      const calls = client.appendToStream.mock.calls;
+      expect(calls.length).toBe(1);
+      expect(calls[0][0]).toBe('test-snapshot');
+      
+      const [event] = calls[0][1] as any[];
+      expect(event).toBeDefined();
+      expect(event.type).toBe('snapshot');
+      expect(event.data).toEqual({
+        state: {
+          id: '1',
+          value: 75,
+          timestamp: expect.any(String)
+        },
+        version: 5,
+        timestamp: expect.any(String)
+      });
+    });
+
+    it('should not create snapshot when event count is below frequency', async () => {
+      const mockEvents = Array(4).fill({
         event: {
           type: 'valueUpdated',
           data: { value: 5 },
@@ -155,16 +261,10 @@ describe('StreamHelper', () => {
       } as any));
 
       await streamHelper.getCurrentState('test', applyEvent);
-      
-      expect(client.appendToStream).toHaveBeenCalledWith(
+
+      expect(client.appendToStream).not.toHaveBeenCalledWith(
         'test-snapshot',
-        expect.objectContaining({
-          type: 'snapshot',
-          data: expect.objectContaining({
-            state: expect.any(Object),
-            version: expect.any(Number)
-          })
-        })
+        expect.any(Object)
       );
     });
   });
