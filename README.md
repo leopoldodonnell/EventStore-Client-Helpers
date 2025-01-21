@@ -1,102 +1,169 @@
-# es-helpers
+# EventStore Client Helpers
 
-Helper functions for working with EventStoreDB streams and snapshots in TypeScript.
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
+[![EventStoreDB](https://img.shields.io/badge/EventStoreDB-23.10-orange.svg)](https://www.eventstore.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Features
+A collection of tools and examples for working with [EventStoreDB](https://www.eventstore.com/) in TypeScript.
 
-- Stream reading with snapshot support
-- Automatic snapshot creation and management
-- Event metadata support for tracking and auditing
-- TypeScript support with full type definitions
+## Projects
 
-## Installation
+This monorepo contains the following projects:
 
-```bash
-npm install es-helpers
-```
+### [`@eventstore-helpers/core`](./projects/eventstore-helpers/README.md)
 
-## Usage
+A TypeScript library that simplifies working with EventStoreDB by providing high-level abstractions for common event sourcing patterns. Features include:
+- Stream management
+- Automatic snapshotting
+- Event versioning and migrations
+- Type-safe event handling
 
-```typescript
-import { EventStoreDBClient } from '@eventstore/db-client';
-import { StreamHelper } from 'es-helpers';
+### [`example-bank`](./projects/example-bank/README.md)
 
-// Create EventStoreDB client
-const client = EventStoreDBClient.connectionString('esdb://localhost:2113?tls=false');
+A complete example application demonstrating how to build an event-sourced banking system using `@eventstore-helpers/core`. Features include:
+- Account creation and management
+- Deposits and withdrawals
+- Event versioning
+- Automatic snapshots
 
-// Configure stream helper
-const streamHelper = new StreamHelper(client, {
-  streamPrefix: 'myapp',
-  snapshotFrequency: 100 // Optional: create snapshot every 100 events
-});
+## Getting Started
 
-// Read from snapshot
-const result = await streamHelper.readFromSnapshot('aggregate-123', applyEvent);
-if (result) {
-  console.log('Current state:', result.state);
-  console.log('Current version:', result.version);
-}
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/EventStore-Client-Helpers.git
+   cd EventStore-Client-Helpers
+   ```
 
-// Append event with metadata
-const event = {
-  type: 'UserAction',
-  data: { /* event data */ }
-};
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-const metadata = {
-  userId: 'user-123',
-  transactionId: crypto.randomUUID(),
-  source: 'web',
-  // timestamp and correlationId will be auto-generated if not provided
-};
+3. See the individual project READMEs for specific setup instructions:
+   - [EventStore Helpers Core Documentation](./projects/eventstore-helpers/README.md)
+   - [Example Bank Application Documentation](./projects/example-bank/README.md)
 
-await streamHelper.appendEvent('aggregate-123', event, metadata);
+## Building Event-Sourced Aggregates
 
-// Create snapshot
-await streamHelper.createSnapshot('aggregate-123', state, version);
-```
-
-### Example: Bank Account with Transaction Tracking
+The EventStore Client Helpers make it easy to implement event-sourced aggregates in TypeScript. Here's a quick example:
 
 ```typescript
-interface TransactionMetadata {
-  userId: string;
-  transactionId: string;
-  source: string;
-  timestamp?: string;
-  correlationId?: string;
+import { StreamHelper, BaseEvent } from '@eventstore-helpers/core';
+
+// 1. Define your events
+interface AccountCreated extends BaseEvent<'AccountCreated'> {
+  data: {
+    owner: string;
+    initialBalance: number;
+    accountType: 'savings' | 'checking';
+  };
 }
 
-class AccountAggregate {
-  async deposit(accountId: string, amount: number, userId: string): Promise<void> {
-    const event = {
+interface MoneyDeposited extends BaseEvent<'MoneyDeposited'> {
+  data: {
+    amount: number;
+    description?: string;
+  };
+}
+
+type AccountEvent = AccountCreated | MoneyDeposited;
+
+// 2. Define your aggregate state
+interface AccountState {
+  owner: string;
+  balance: number;
+  accountType: 'savings' | 'checking';
+  version: number;
+}
+
+// 3. Create your aggregate class
+class BankAccount {
+  private streamHelper: StreamHelper<AccountEvent, AccountState>;
+  
+  constructor(client: EventStoreDBClient) {
+    this.streamHelper = new StreamHelper(client, {
+      snapshotFrequency: 5,
+      currentEventVersion: 1
+    });
+  }
+
+  // 4. Implement state rebuilding
+  private applyEvent(state: AccountState | null, event: AccountEvent): AccountState {
+    if (event.type === 'AccountCreated') {
+      return {
+        owner: event.data.owner,
+        balance: event.data.initialBalance,
+        accountType: event.data.accountType,
+        version: 1
+      };
+    }
+    
+    if (!state) throw new Error('Account not found');
+    
+    if (event.type === 'MoneyDeposited') {
+      return {
+        ...state,
+        balance: state.balance + event.data.amount,
+        version: state.version + 1
+      };
+    }
+    
+    return state;
+  }
+
+  // 5. Implement business methods
+  async createAccount(
+    accountId: string,
+    owner: string,
+    initialBalance: number,
+    accountType: 'savings' | 'checking' = 'checking'
+  ): Promise<void> {
+    await this.streamHelper.appendEvent(accountId, {
+      type: 'AccountCreated',
+      data: { owner, initialBalance, accountType }
+    });
+  }
+
+  async deposit(accountId: string, amount: number, description?: string): Promise<void> {
+    // First get current state
+    const { state } = await this.streamHelper.getCurrentState(
+      accountId,
+      this.applyEvent
+    );
+    
+    if (!state) throw new Error('Account not found');
+    
+    // Then append new event
+    await this.streamHelper.appendEvent(accountId, {
       type: 'MoneyDeposited',
-      data: { amount }
-    };
+      data: { amount, description }
+    });
+  }
 
-    const metadata: TransactionMetadata = {
-      userId,
-      transactionId: crypto.randomUUID(),
-      source: 'web'
-    };
-
-    await this.streamHelper.appendEvent(accountId, event, metadata);
+  async getBalance(accountId: string): Promise<number> {
+    const { state } = await this.streamHelper.getCurrentState(
+      accountId,
+      this.applyEvent
+    );
+    return state?.balance ?? 0;
   }
 }
 ```
 
-In this example, each transaction is tracked with metadata including:
-- Who performed the action (userId)
-- A unique transaction ID
-- The source of the transaction
-- Automatic timestamp and correlation ID
+This example demonstrates key features of the library:
 
-This metadata can be used for:
-- Audit trails
-- Transaction tracing
-- User activity monitoring
-- System integration tracking
+1. **Type-Safe Events**: Events are defined as TypeScript interfaces extending `BaseEvent`
+2. **Automatic Snapshots**: Configure `snapshotFrequency` for automatic state snapshots
+3. **State Management**: Use `getCurrentState` to rebuild aggregate state from events
+4. **Event Appending**: Simple event appending with `appendEvent`
+5. **Business Logic**: Implement domain logic in your aggregate methods
+
+For a complete example including event versioning, migrations, and more complex business rules, see the [example-bank](./projects/example-bank/README.md) project.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.

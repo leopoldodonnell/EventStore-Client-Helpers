@@ -1,6 +1,8 @@
 # Example Bank Application
 
-This is an example application demonstrating the usage of `@eventstore-helpers/core` package for building an event-sourced banking system.
+This is an example application demonstrating the usage of [`@eventstore-helpers/core`](../eventstore-helpers/README.md) package for building an event-sourced banking system.
+
+Part of the [EventStore Client Helpers](../../README.md) project.
 
 ## Features
 
