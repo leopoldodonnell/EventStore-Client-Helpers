@@ -8,7 +8,26 @@
  * - Stream reading with optional snapshot support
  * - Type-safe event handling with generics
  */
+import { EventStoreDBClient, START, ResolvedEvent, StreamNotFoundError, jsonEvent } from '@eventstore/db-client';
+import { JSONType, BaseEvent, Snapshot } from './types';
+
+interface StreamConfig<E extends BaseEvent> {
+  snapshotFrequency?: number;
+  snapshotPrefix?: string;
+  currentEventVersion?: number;
+  eventMigrations?: EventMigration<E>[];
+}
+
+interface EventMigration<E extends BaseEvent> {
+  eventType: string;
+  fromVersion: number;
+  migrate: (event: E) => E;
+}
+
 export class StreamHelper<S extends JSONType, E extends BaseEvent> {
+  private client: EventStoreDBClient;
+  private config: Required<StreamConfig<E>>;
+
   /**
    * Creates a new StreamHelper instance.
    * 
