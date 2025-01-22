@@ -70,6 +70,78 @@ curl -X POST http://localhost:3000/accounts/{accountId}/withdraw \
   }'
 ```
 
+## System Architecture
+
+### Account Creation Flow
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant ES as EventStore
+    
+    C->>A: POST /accounts
+    A->>ES: Create Stream (account-{uuid})
+    A->>ES: Append AccountCreated Event
+    ES-->>A: Success
+    A-->>C: Account Details
+```
+
+### Deposit Flow
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant ES as EventStore
+    participant AG as AccountAggregate
+    
+    C->>A: POST /accounts/{id}/deposit
+    A->>ES: Read Stream
+    ES-->>A: Stream Events
+    A->>AG: Load Account State
+    AG-->>A: Current Balance
+    A->>ES: Append MoneyDeposited Event
+    ES-->>A: Success
+    A-->>C: Updated Account Details
+```
+
+### Withdrawal Flow
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant ES as EventStore
+    participant AG as AccountAggregate
+    
+    C->>A: POST /accounts/{id}/withdraw
+    A->>ES: Read Stream
+    ES-->>A: Stream Events
+    A->>AG: Load Account State
+    AG-->>A: Current Balance
+    alt Sufficient Funds
+        A->>ES: Append MoneyWithdrawn Event
+        ES-->>A: Success
+        A-->>C: Updated Account Details
+    else Insufficient Funds
+        A-->>C: Error: Insufficient Funds
+    end
+```
+
+### Query Account Flow
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant ES as EventStore
+    participant AG as AccountAggregate
+    
+    C->>A: GET /accounts/{id}
+    A->>ES: Read Stream
+    ES-->>A: Stream Events
+    A->>AG: Load Account State
+    AG-->>A: Current State
+    A-->>C: Account Details
+```
+
 ## Implementation Details
 
 This example demonstrates:
