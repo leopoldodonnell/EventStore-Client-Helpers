@@ -40,18 +40,18 @@ describe('AccountAggregate', () => {
       const metadata: TransactionMetadata = { 
         userId: 'test-user',
         source: 'test',
-        transactionId: mockUUID
+        transactionId: 'test-uuid'
       };
 
       await accountAggregate.createAccount(owner, initialBalance, accountType, metadata);
 
       expect(mockStreamHelper.appendEvent).toHaveBeenCalledWith(
-        mockUUID,
+        'account-test-uuid',
         {
           type: 'AccountCreated',
           version: 1,
           data: {
-            id: mockUUID,
+            id: 'account-test-uuid',
             owner,
             initialBalance,
             accountType,
@@ -65,14 +65,14 @@ describe('AccountAggregate', () => {
 
   describe('deposit', () => {
     it('should deposit money into account', async () => {
-      const accountId = 'test-account';
+      const accountId = 'test-uuid';
       const amount = 500;
       const description = 'Salary deposit';
       const metadata = { userId: 'test-user', transactionId: 'test-uuid', source: 'test' };
 
       mockStreamHelper.getCurrentState.mockResolvedValue({
         state: {
-          id: accountId,
+          id: 'account-test-uuid',
           owner: 'John Doe',
           balance: 1000,
           version: 1,
@@ -82,11 +82,11 @@ describe('AccountAggregate', () => {
           metadata: {},
           type: 'AccountCreated',
           data: {
-            id: accountId,
+            id: 'account-test-uuid',
             owner: 'John Doe',
             initialBalance: 1000,
-            timestamp: '2025-01-20T15:49:09-05:00'
-          }
+            timestamp: '2025-01-20T15:49:09-05:00',
+          },
         },
         version: 1
       });
@@ -94,7 +94,7 @@ describe('AccountAggregate', () => {
       await accountAggregate.deposit(accountId, amount, description, metadata);
 
       expect(mockStreamHelper.appendEvent).toHaveBeenCalledWith(
-        accountId,
+        'account-test-uuid',
         {
           type: 'MoneyDeposited',
           version: 1,
@@ -109,7 +109,7 @@ describe('AccountAggregate', () => {
     });
 
     it('should throw error when first event is not AccountCreated', async () => {
-      const accountId = 'test-account';
+      const accountId = 'test-uuid';
       const amount = 500;
       const description = 'Salary deposit';
       const metadata = { userId: 'test-user', transactionId: 'test-uuid', source: 'test' };
@@ -124,14 +124,14 @@ describe('AccountAggregate', () => {
 
   describe('withdraw', () => {
     it('should withdraw money from account', async () => {
-      const accountId = 'test-account';
+      const accountId = 'test-uuid';
       const amount = 500;
       const description = 'ATM withdrawal';
       const metadata = { userId: 'test-user', transactionId: 'test-uuid', source: 'test' };
 
       mockStreamHelper.getCurrentState.mockResolvedValue({
         state: {
-          id: accountId,
+          id: 'account-test-uuid',
           owner: 'John Doe',
           balance: 1000,
           version: 1,
@@ -141,11 +141,11 @@ describe('AccountAggregate', () => {
           metadata: {},
           type: 'AccountCreated',
           data: {
-            id: accountId,
+            id: 'account-test-uuid',
             owner: 'John Doe',
             initialBalance: 1000,
-            timestamp: '2025-01-20T15:49:09-05:00'
-          }
+            timestamp: '2025-01-20T15:49:09-05:00',
+          },
         },
         version: 1
       });
@@ -153,7 +153,7 @@ describe('AccountAggregate', () => {
       await accountAggregate.withdraw(accountId, amount, description, metadata);
 
       expect(mockStreamHelper.appendEvent).toHaveBeenCalledWith(
-        accountId,
+        'account-test-uuid',
         {
           type: 'MoneyWithdrawn',
           version: 1,
@@ -168,14 +168,14 @@ describe('AccountAggregate', () => {
     });
 
     it('should throw error when withdrawing more than balance', async () => {
-      const accountId = 'test-account';
+      const accountId = 'test-uuid';
       const amount = 1500;
       const description = 'ATM withdrawal';
       const metadata = { userId: 'test-user', transactionId: 'test-uuid', source: 'test' };
 
       mockStreamHelper.getCurrentState.mockResolvedValue({
         state: {
-          id: accountId,
+          id: 'account-test-uuid',
           owner: 'John Doe',
           balance: 1000,
           version: 1,
@@ -185,11 +185,11 @@ describe('AccountAggregate', () => {
           metadata: {},
           type: 'AccountCreated',
           data: {
-            id: accountId,
+            id: 'account-test-uuid',
             owner: 'John Doe',
             initialBalance: 1000,
-            timestamp: '2025-01-20T15:49:09-05:00'
-          }
+            timestamp: '2025-01-20T15:49:09-05:00',
+          },
         },
         version: 1
       });
@@ -210,9 +210,9 @@ describe('AccountAggregate', () => {
     });
 
     it('should return account state for existing account', async () => {
-      const accountId = 'test-account';
+      const accountId = 'test-uuid';
       const mockAccount: BankAccount = {
-        id: accountId,
+        id: 'account-test-uuid',
         owner: 'John Doe',
         balance: 1000,
         version: 1,
@@ -235,9 +235,9 @@ describe('AccountAggregate', () => {
 
   describe('applyEvent', () => {
     it('should throw error for unknown event type', async () => {
-      const accountId = 'test-account';
+      const accountId = 'test-uuid';
       const state: BankAccount = {
-        id: accountId,
+        id: 'account-test-uuid',
         owner: 'John Doe',
         balance: 1000,
         version: 1,
@@ -247,7 +247,7 @@ describe('AccountAggregate', () => {
         metadata: {},
         type: 'AccountCreated',
         data: {
-          id: accountId,
+          id: 'account-test-uuid',
           owner: 'John Doe',
           initialBalance: 1000,
           timestamp: '2025-01-20T15:49:09-05:00'

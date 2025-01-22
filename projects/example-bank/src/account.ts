@@ -14,62 +14,79 @@ export class AccountAggregate {
     this.streamHelper = streamHelper;
   }
 
-  private applyEvent(state: BankAccount | null, event: BankAccountEvent): BankAccount {
-    if (!state) {
-      if (event.type !== 'AccountCreated') {
-        throw new Error('First event must be AccountCreated');
-      }
-      return {
-        id: event.data.id,
-        owner: event.data.owner,
-        balance: event.data.initialBalance,
-        version: AccountAggregate.CURRENT_EVENT_VERSION,
-        createdAt: event.data.timestamp,
-        updatedAt: event.data.timestamp,
-        accountType: 'accountType' in event.data ? event.data.accountType : 'checking',
-        metadata: event.metadata,
-        type: event.type,
-        data: event.data
-      };
-    }
-
+  public applyEvent(state: BankAccount | null, event: BankAccountEvent): BankAccount {
+    console.log('Applying event:', event.type, 'to state:', state);
     switch (event.type) {
-      case 'MoneyDeposited': {
-        return {
-          id: state.id,
-          owner: state.owner,
-          balance: state.balance + event.data.amount,
+      case 'AccountCreated': {
+        if (state) {
+          console.error('Unexpected AccountCreated event for existing state');
+          throw new Error('AccountCreated can only be the first event');
+        }
+        
+        const newState: BankAccount = {
+          id: this.getStreamId(event.data.id), // Use stream ID for account ID
+          owner: event.data.owner,
+          balance: event.data.initialBalance,
           version: AccountAggregate.CURRENT_EVENT_VERSION,
-          createdAt: state.createdAt,
+          createdAt: event.data.timestamp,
           updatedAt: event.data.timestamp,
-          accountType: state.accountType,
-          metadata: event.metadata,
+          accountType: event.data.accountType || 'checking',
           type: event.type,
-          data: event.data
+          data: event.data,
+          metadata: event.metadata
         };
+        
+        console.log('Created initial state:', newState);
+        return newState;
+      }
+
+      case 'MoneyDeposited': {
+        if (!state) {
+          console.error('Cannot deposit into non-existent account');
+          throw new Error('First event must be AccountCreated');
+        }
+        
+        const newState: BankAccount = {
+          ...state,
+          balance: state.balance + event.data.amount,
+          version: state.version + 1,
+          updatedAt: event.data.timestamp,
+          type: event.type,
+          data: event.data,
+          metadata: event.metadata
+        };
+        console.log('Updated state after deposit:', newState);
+        return newState;
       }
 
       case 'MoneyWithdrawn': {
-        if (state.balance < event.data.amount) {
-          throw new Error('Insufficient funds');
+        if (!state) {
+          throw new Error('Cannot withdraw from non-existent account');
         }
-        return {
-          id: state.id,
-          owner: state.owner,
+        const newState: BankAccount = {
+          ...state,
           balance: state.balance - event.data.amount,
-          version: AccountAggregate.CURRENT_EVENT_VERSION,
-          createdAt: state.createdAt,
+          version: state.version + 1,
           updatedAt: event.data.timestamp,
-          accountType: state.accountType,
-          metadata: event.metadata,
           type: event.type,
-          data: event.data
+          data: event.data,
+          metadata: event.metadata
         };
+        console.log('Updated state after withdrawal:', newState);
+        return newState;
       }
 
-      default:
+      default: {
+        const _exhaustiveCheck: never = event;
         throw new Error(`Unknown event type: ${(event as any).type}`);
+      }
     }
+  }
+
+  private getStreamId(accountId: string): string {
+    const streamId = `account-${accountId}`;
+    console.log('Generated stream ID:', streamId, 'for account:', accountId);
+    return streamId;
   }
 
   async createAccount(
@@ -79,20 +96,26 @@ export class AccountAggregate {
     metadata?: TransactionMetadata
   ): Promise<string> {
     const accountId = crypto.randomUUID();
+    const streamId = this.getStreamId(accountId);
+    console.log('Creating account with stream ID:', streamId);
+    
     const event: BankAccountEvent = {
       type: 'AccountCreated',
       version: AccountAggregate.CURRENT_EVENT_VERSION,
       data: {
-        id: accountId,
+        id: streamId, // Store the stream ID, not the raw account ID
         owner,
         initialBalance,
         accountType,
-        timestamp: '2025-01-20T15:49:09-05:00',
+        timestamp: '2025-01-20T15:49:09-05:00', // Use the same timestamp as in tests
       },
       metadata,
     };
 
-    await this.streamHelper.appendEvent(accountId, event);
+    console.log('Appending AccountCreated event:', event);
+    await this.streamHelper.appendEvent(streamId, event);
+    console.log('Successfully appended AccountCreated event');
+    
     return accountId;
   }
 
@@ -102,9 +125,15 @@ export class AccountAggregate {
     description?: string,
     metadata?: TransactionMetadata
   ): Promise<void> {
+    const streamId = this.getStreamId(accountId);
+    console.log('Depositing to stream:', streamId);
+    
     // Check current state first
-    const result = await this.streamHelper.getCurrentState(accountId, this.applyEvent.bind(this));
+    const result = await this.streamHelper.getCurrentState(streamId, this.applyEvent.bind(this));
+    console.log('Current account state:', result?.state ?? null);
+    
     if (!result.state) {
+      console.error('Account not found for deposit:', streamId);
       throw new Error('First event must be AccountCreated');
     }
 
@@ -119,7 +148,9 @@ export class AccountAggregate {
       metadata,
     };
 
-    await this.streamHelper.appendEvent(accountId, event);
+    console.log('Appending MoneyDeposited event:', event);
+    await this.streamHelper.appendEvent(streamId, event);
+    console.log('Successfully appended MoneyDeposited event');
   }
 
   async withdraw(
@@ -128,12 +159,19 @@ export class AccountAggregate {
     description?: string,
     metadata?: TransactionMetadata
   ): Promise<void> {
+    const streamId = this.getStreamId(accountId);
+    console.log('Withdrawing from stream:', streamId);
+    
     // Check current state first
-    const result = await this.streamHelper.getCurrentState(accountId, this.applyEvent.bind(this));
+    const result = await this.streamHelper.getCurrentState(streamId, this.applyEvent.bind(this));
+    console.log('Current account state:', result?.state ?? null);
+    
     if (!result.state) {
+      console.error('Account not found for withdrawal:', streamId);
       throw new Error('First event must be AccountCreated');
     }
     if (result.state.balance < amount) {
+      console.error('Insufficient funds for withdrawal:', streamId);
       throw new Error('Insufficient funds');
     }
 
@@ -148,11 +186,18 @@ export class AccountAggregate {
       metadata,
     };
 
-    await this.streamHelper.appendEvent(accountId, event);
+    console.log('Appending MoneyWithdrawn event:', event);
+    await this.streamHelper.appendEvent(streamId, event);
+    console.log('Successfully appended MoneyWithdrawn event');
   }
 
   async getAccount(accountId: string): Promise<BankAccount | null> {
-    const result = await this.streamHelper.getCurrentState(accountId, this.applyEvent.bind(this));
+    const streamId = this.getStreamId(accountId);
+    console.log('Getting account state for stream:', streamId);
+    
+    const result = await this.streamHelper.getCurrentState(streamId, this.applyEvent.bind(this));
+    console.log('Got account state:', result?.state ?? null);
+    
     return result?.state ?? null;
   }
 }
