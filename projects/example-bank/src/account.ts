@@ -24,7 +24,7 @@ export class AccountAggregate {
         }
         
         const newState: BankAccount = {
-          id: this.getStreamId(event.data.id), // Use stream ID for account ID
+          id: event.data.id, // Use the ID directly instead of calling getStreamId again
           owner: event.data.owner,
           balance: event.data.initialBalance,
           version: AccountAggregate.CURRENT_EVENT_VERSION,
@@ -125,7 +125,8 @@ export class AccountAggregate {
     description?: string,
     metadata?: TransactionMetadata
   ): Promise<void> {
-    const streamId = this.getStreamId(accountId);
+    // If accountId already starts with 'account-', use it as is, otherwise add the prefix
+    const streamId = accountId.startsWith('account-') ? accountId : this.getStreamId(accountId);
     console.log('Depositing to stream:', streamId);
     
     // Check current state first
@@ -143,7 +144,7 @@ export class AccountAggregate {
       data: {
         amount,
         description,
-        timestamp: '2025-01-20T15:49:09-05:00',
+        timestamp: new Date().toISOString(),
       },
       metadata,
     };
@@ -159,7 +160,8 @@ export class AccountAggregate {
     description?: string,
     metadata?: TransactionMetadata
   ): Promise<void> {
-    const streamId = this.getStreamId(accountId);
+    // If accountId already starts with 'account-', use it as is, otherwise add the prefix
+    const streamId = accountId.startsWith('account-') ? accountId : this.getStreamId(accountId);
     console.log('Withdrawing from stream:', streamId);
     
     // Check current state first
@@ -170,8 +172,8 @@ export class AccountAggregate {
       console.error('Account not found for withdrawal:', streamId);
       throw new Error('First event must be AccountCreated');
     }
+
     if (result.state.balance < amount) {
-      console.error('Insufficient funds for withdrawal:', streamId);
       throw new Error('Insufficient funds');
     }
 
@@ -181,7 +183,7 @@ export class AccountAggregate {
       data: {
         amount,
         description,
-        timestamp: '2025-01-20T15:49:09-05:00',
+        timestamp: new Date().toISOString(),
       },
       metadata,
     };
@@ -192,7 +194,8 @@ export class AccountAggregate {
   }
 
   async getAccount(accountId: string): Promise<BankAccount | null> {
-    const streamId = this.getStreamId(accountId);
+    // If accountId already starts with 'account-', use it as is, otherwise add the prefix
+    const streamId = accountId.startsWith('account-') ? accountId : this.getStreamId(accountId);
     console.log('Getting account state for stream:', streamId);
     
     const result = await this.streamHelper.getCurrentState(streamId, this.applyEvent.bind(this));
