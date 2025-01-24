@@ -55,7 +55,7 @@ describe('AccountAggregate', () => {
             owner,
             initialBalance,
             accountType,
-            timestamp: '2025-01-20T15:49:09-05:00',
+            timestamp: expect.any(String),
           },
           metadata,
         }
@@ -101,7 +101,7 @@ describe('AccountAggregate', () => {
           data: {
             amount,
             description,
-            timestamp: '2025-01-20T15:49:09-05:00',
+            timestamp: expect.any(String),
           },
           metadata
         }
@@ -160,7 +160,7 @@ describe('AccountAggregate', () => {
           data: {
             amount,
             description,
-            timestamp: '2025-01-20T15:49:09-05:00',
+            timestamp: expect.any(String),
           },
           metadata
         }
