@@ -8,7 +8,7 @@ interface EntityReference {
   version: number;
 }
 
-interface AggregateEvent extends BaseEvent {
+export interface AggregateEvent extends BaseEvent {
   affectedEntities?: EntityReference[];
 }
 
@@ -42,6 +42,10 @@ export class AggregateHelper<S extends JSONType, E extends AggregateEvent> exten
       ...config,
       aggregatePrefix: config.aggregatePrefix ?? 'aggregate-',
       entityPrefixes: config.entityPrefixes ?? {},
+      snapshotFrequency: config.snapshotFrequency ?? 100,
+      snapshotPrefix: config.snapshotPrefix ?? 'snapshot-',
+      currentEventVersion: config.currentEventVersion ?? 1,
+      eventMigrations: config.eventMigrations ?? [],
     };
   }
 
@@ -100,34 +104,43 @@ export class AggregateHelper<S extends JSONType, E extends AggregateEvent> exten
     }
 
     try {
-      // Start a transaction
-      const transaction = await this.client.startTransaction();
-
-      // Append events to the aggregate stream
-      await transaction.appendToStream(streamId, pendingEvents.map(event => 
-        jsonEvent({
-          type: event.type,
-          data: event,
-        })
-      ));
-
       // Append events to each affected entity's stream
       for (const event of pendingEvents) {
         if (event.affectedEntities) {
           for (const entity of event.affectedEntities) {
             const entityStreamId = this.getEntityStreamId(entity.type, entity.id);
-            await transaction.appendToStream(entityStreamId, [
+            const eventData: JSONType = {
+              type: event.type,
+              data: event.data,
+              metadata: event.metadata,
+              affectedEntities: event.affectedEntities
+            };
+            
+            // Append event to entity stream
+            await this.client.appendToStream(entityStreamId, [
               jsonEvent({
                 type: event.type,
-                data: event,
+                data: eventData
               })
             ]);
           }
         }
       }
 
-      // Commit the transaction
-      await transaction.commit();
+      // Append events to the aggregate stream
+      const events = pendingEvents.map(event => {
+        const eventData: JSONType = {
+          type: event.type,
+          data: event.data,
+          metadata: event.metadata,
+          affectedEntities: event.affectedEntities || []
+        };
+        return jsonEvent({
+          type: event.type,
+          data: eventData
+        });
+      });
+      await this.client.appendToStream(streamId, events);
 
       // Clear pending events
       this.pendingEvents.delete(streamId);
