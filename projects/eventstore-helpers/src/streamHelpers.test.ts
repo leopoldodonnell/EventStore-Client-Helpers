@@ -45,7 +45,7 @@ describe('StreamHelper', () => {
   beforeEach(() => {
     client = {
       readStream: jest.fn(),
-      appendToStream: jest.fn(),
+      appendToStream: jest.fn().mockResolvedValue({ success: true, nextExpectedRevision: BigInt(1) }),
     } as any;
     streamHelper = new StreamHelper<TestState, TestEvent>(client, mockConfig);
   });
@@ -219,7 +219,7 @@ describe('StreamHelper', () => {
 
       client.appendToStream.mockResolvedValue({
         success: true,
-        nextExpectedRevision: 1n,
+        nextExpectedRevision: BigInt(1),
         position: { commit: 1n, prepare: 1n }
       });
 
@@ -266,6 +266,178 @@ describe('StreamHelper', () => {
         'test-snapshot',
         expect.any(Object)
       );
+    });
+  });
+
+  describe('multi-stream operations', () => {
+    it('should append events to transaction stream', async () => {
+      const streamEvents = [
+        {
+          streamId: 'stream1',
+          event: {
+            type: 'valueUpdated',
+            data: { value: 5 },
+            version: 1
+          } as TestEvent,
+          expectedRevision: BigInt(0)
+        },
+        {
+          streamId: 'stream2',
+          event: {
+            type: 'valueUpdated',
+            data: { value: 10 },
+            version: 1
+          } as TestEvent
+        }
+      ];
+
+      await streamHelper.appendMultiStreamEvents('tx1', streamEvents);
+
+      expect(client.appendToStream).toHaveBeenCalledWith(
+        '$tx-tx1',
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'StreamEvent',
+            data: expect.objectContaining({
+              targetStream: 'stream1'
+            })
+          }),
+          expect.objectContaining({
+            type: 'StreamEvent',
+            data: expect.objectContaining({
+              targetStream: 'stream2'
+            })
+          })
+        ])
+      );
+    });
+
+    it('should process transaction stream successfully', async () => {
+      const mockEvents = [
+        {
+          event: {
+            type: 'StreamEvent',
+            data: {
+              targetStream: 'stream1',
+              event: {
+                type: 'valueUpdated',
+                data: { value: 5 }
+              },
+              expectedRevision: BigInt(0)
+            }
+          }
+        },
+        {
+          event: {
+            type: 'StreamEvent',
+            data: {
+              targetStream: 'stream2',
+              event: {
+                type: 'valueUpdated',
+                data: { value: 10 }
+              }
+            }
+          }
+        }
+      ];
+
+      client.readStream.mockReturnValueOnce({
+        [Symbol.asyncIterator]: () => ({
+          next: jest.fn()
+            .mockResolvedValueOnce({ done: false, value: mockEvents[0] })
+            .mockResolvedValueOnce({ done: false, value: mockEvents[1] })
+            .mockResolvedValueOnce({ done: true })
+        })
+      } as any);
+
+      await streamHelper.processTransactionStream('$tx-tx1');
+
+      expect(client.appendToStream).toHaveBeenCalledWith(
+        'stream1',
+        [expect.any(Object)],
+        { expectedRevision: BigInt(0) }
+      );
+      expect(client.appendToStream).toHaveBeenCalledWith(
+        'stream2',
+        [expect.any(Object)],
+        { expectedRevision: undefined }
+      );
+      expect(client.appendToStream).toHaveBeenCalledWith(
+        '$tx-tx1',
+        [expect.objectContaining({ type: 'TransactionCompleted' })]
+      );
+    });
+
+    it('should handle transaction failure', async () => {
+      const mockEvents = [{
+        event: {
+          type: 'StreamEvent',
+          data: {
+            targetStream: 'stream1',
+            event: {
+              type: 'valueUpdated',
+              data: { value: 5 }
+            }
+          }
+        }
+      }];
+
+      client.readStream.mockReturnValueOnce({
+        [Symbol.asyncIterator]: () => ({
+          next: jest.fn()
+            .mockResolvedValueOnce({ done: false, value: mockEvents[0] })
+            .mockResolvedValueOnce({ done: true })
+        })
+      } as any);
+
+      const error = new Error('Concurrency error');
+      client.appendToStream
+        .mockRejectedValueOnce(error)
+        .mockResolvedValueOnce({ success: true, nextExpectedRevision: BigInt(1) }); // For the failure event
+
+      await expect(streamHelper.processTransactionStream('$tx-tx1')).rejects.toThrow('Concurrency error');
+
+      expect(client.appendToStream).toHaveBeenCalledWith(
+        '$tx-tx1',
+        [expect.objectContaining({
+          type: 'TransactionFailed',
+          data: expect.objectContaining({
+            error: 'Concurrency error',
+            failedStream: 'stream1'
+          })
+        })]
+      );
+    });
+  });
+
+  describe('snapshot operations', () => {
+    it('should create snapshot with correct data', async () => {
+      const state: TestState = {
+        id: '1',
+        value: 100,
+        timestamp: '2025-01-21T07:04:17-05:00'
+      };
+      const version = 5;
+      const streamId = 'test-stream';
+
+      await streamHelper['createSnapshot'](streamId, state, version);
+
+      expect(client.appendToStream).toHaveBeenCalledWith(
+        'test-stream-snapshot',
+        [expect.objectContaining({
+          type: 'snapshot',
+          data: expect.objectContaining({
+            state,
+            version,
+            timestamp: expect.any(String)
+          })
+        })]
+      );
+    });
+
+    it('should not create snapshot for null state', async () => {
+      await streamHelper['createSnapshot']('test-stream', null, 5);
+      expect(client.appendToStream).not.toHaveBeenCalled();
     });
   });
 });

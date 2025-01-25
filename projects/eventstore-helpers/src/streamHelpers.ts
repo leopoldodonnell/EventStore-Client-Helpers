@@ -24,8 +24,14 @@ interface EventMigration<E extends BaseEvent> {
   migrate: (event: E) => E;
 }
 
+interface StreamEvent<E extends BaseEvent> {
+  streamId: string;
+  event: E;
+  expectedRevision?: bigint;
+}
+
 export class StreamHelper<S extends JSONType, E extends BaseEvent> {
-  private client: EventStoreDBClient;
+  protected client: EventStoreDBClient;
   private config: Required<StreamConfig<E>>;
 
   /**
@@ -129,11 +135,18 @@ export class StreamHelper<S extends JSONType, E extends BaseEvent> {
    * @returns Promise resolving to void
    */
   async appendEvent(streamId: string, event: E, expectedRevision?: bigint): Promise<void> {
-    console.log('Appending event to stream:', streamId, 'Event:', event);
-    const jsonEventData = jsonEvent(event);
-    console.log('Converted to JSON event:', jsonEventData);
-    await this.client.appendToStream(streamId, jsonEventData, expectedRevision ? { expectedRevision } : undefined);
-    console.log('Successfully appended event to stream:', streamId);
+    const jsonEventData = jsonEvent({
+      type: event.type,
+      data: event.data,
+      metadata: {
+        ...event.metadata,
+        version: this.config.currentEventVersion,
+      },
+    });
+
+    await this.client.appendToStream(streamId, [jsonEventData], {
+      expectedRevision,
+    });
   }
 
   /**
@@ -213,5 +226,97 @@ export class StreamHelper<S extends JSONType, E extends BaseEvent> {
       `${streamId}${this.config.snapshotPrefix}`,
       [event]
     );
+  }
+
+  /**
+   * Appends multiple events to different streams using a transaction stream for atomicity.
+   * This creates a transaction stream that contains all events, which can then be processed
+   * to update individual streams.
+   * 
+   * @param transactionId - Unique identifier for this transaction
+   * @param streamEvents - Array of events with their target streams
+   * @returns Promise resolving to the transaction stream ID
+   */
+  async appendMultiStreamEvents(transactionId: string, streamEvents: StreamEvent<E>[]): Promise<string> {
+    const transactionStreamId = `$tx-${transactionId}`;
+    
+    // Create transaction events that wrap the original events with their target stream information
+    const transactionEvents = streamEvents.map(({ streamId, event, expectedRevision }) => 
+      jsonEvent({
+        type: 'StreamEvent',
+        data: {
+          targetStream: streamId,
+          event: {
+            type: event.type,
+            data: event.data,
+            metadata: {
+              ...event.metadata,
+              version: this.config.currentEventVersion,
+            },
+          },
+          expectedRevision,
+        },
+      })
+    );
+
+    // Append all events to the transaction stream atomically
+    await this.client.appendToStream(transactionStreamId, transactionEvents);
+    
+    return transactionStreamId;
+  }
+
+  /**
+   * Processes a transaction stream by applying its events to their target streams.
+   * If any append fails due to concurrency, the entire transaction is marked as failed.
+   * 
+   * @param transactionStreamId - ID of the transaction stream to process
+   * @returns Promise resolving to void
+   */
+  async processTransactionStream(transactionStreamId: string): Promise<void> {
+    const events = await this.readEvents(transactionStreamId);
+    
+    for (const resolvedEvent of events) {
+      const eventData = resolvedEvent.event?.data as any;
+      if (!eventData?.targetStream || !eventData?.event) continue;
+
+      try {
+        await this.client.appendToStream(
+          eventData.targetStream,
+          [jsonEvent(eventData.event)],
+          { expectedRevision: eventData.expectedRevision }
+        );
+      } catch (error) {
+        // Mark transaction as failed by appending a failure event
+        await this.client.appendToStream(transactionStreamId, [
+          jsonEvent({
+            type: 'TransactionFailed',
+            data: {
+              error: error instanceof Error ? error.message : String(error),
+              failedStream: eventData.targetStream,
+            },
+          }),
+        ]);
+        throw error;
+      }
+    }
+
+    // Mark transaction as completed
+    await this.client.appendToStream(transactionStreamId, [
+      jsonEvent({
+        type: 'TransactionCompleted',
+        data: {
+          timestamp: new Date().toISOString(),
+        },
+      }),
+    ]);
+  }
+
+  /**
+   * Creates a new transaction for the specified stream.
+   * @param streamId - The ID of the stream to create a transaction for
+   * @returns A promise that resolves to the EventStoreDB client
+   */
+  protected async createTransaction(streamId: string): Promise<EventStoreDBClient> {
+    return this.client;
   }
 }
