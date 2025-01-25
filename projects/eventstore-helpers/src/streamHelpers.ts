@@ -10,6 +10,7 @@
  */
 import { EventStoreDBClient, START, ResolvedEvent, StreamNotFoundError, jsonEvent } from '@eventstore/db-client';
 import { JSONType, BaseEvent, Snapshot } from './types';
+import { randomUUID } from 'crypto';
 
 interface StreamConfig<E extends BaseEvent> {
   snapshotFrequency?: number;
@@ -136,6 +137,7 @@ export class StreamHelper<S extends JSONType, E extends BaseEvent> {
    */
   async appendEvent(streamId: string, event: E, expectedRevision?: bigint): Promise<void> {
     const jsonEventData = jsonEvent({
+      id: randomUUID(),
       type: event.type,
       data: event.data,
       metadata: {
@@ -211,8 +213,8 @@ export class StreamHelper<S extends JSONType, E extends BaseEvent> {
 
     const timestamp = (state as any).timestamp || new Date('2025-01-21T13:38:57-05:00').toISOString();
     const event = {
+      id: randomUUID(),
       type: 'snapshot',
-      id: `${streamId}-${Date.now()}-${Math.random().toString(36).substring(7)}`,
       data: {
         state,
         version,
@@ -241,23 +243,22 @@ export class StreamHelper<S extends JSONType, E extends BaseEvent> {
     const transactionStreamId = `$tx-${transactionId}`;
     
     // Create transaction events that wrap the original events with their target stream information
-    const transactionEvents = streamEvents.map(({ streamId, event, expectedRevision }) => 
-      jsonEvent({
-        type: 'StreamEvent',
-        data: {
-          targetStream: streamId,
-          event: {
-            type: event.type,
-            data: event.data,
-            metadata: {
-              ...event.metadata,
-              version: this.config.currentEventVersion,
-            },
-          },
-          expectedRevision,
+    const transactionEvents = streamEvents.map(({ streamId, event, expectedRevision }) => ({
+      id: randomUUID(),
+      type: 'StreamEvent',
+      data: {
+        targetStream: streamId,
+        event: {
+          type: event.type,
+          data: event.data,
+          metadata: event.metadata || {},
+          version: event.version || this.config.currentEventVersion,
         },
-      })
-    );
+        expectedRevision: expectedRevision !== undefined ? expectedRevision : undefined,
+      },
+      metadata: {},
+      contentType: 'application/json' as const,
+    }));
 
     // Append all events to the transaction stream atomically
     await this.client.appendToStream(transactionStreamId, transactionEvents);
@@ -280,34 +281,48 @@ export class StreamHelper<S extends JSONType, E extends BaseEvent> {
       if (!eventData?.targetStream || !eventData?.event) continue;
 
       try {
+        const targetEvent = {
+          id: randomUUID(),
+          type: eventData.event.type,
+          data: eventData.event.data,
+          metadata: {},
+          contentType: 'application/json' as const,
+        };
+
         await this.client.appendToStream(
           eventData.targetStream,
-          [jsonEvent(eventData.event)],
-          { expectedRevision: eventData.expectedRevision }
+          [targetEvent],
+          { expectedRevision: BigInt(0) }
         );
       } catch (error) {
         // Mark transaction as failed by appending a failure event
-        await this.client.appendToStream(transactionStreamId, [
-          jsonEvent({
-            type: 'TransactionFailed',
-            data: {
-              error: error instanceof Error ? error.message : String(error),
-              failedStream: eventData.targetStream,
-            },
-          }),
-        ]);
+        const failureEvent = {
+          id: randomUUID(),
+          type: 'TransactionFailed',
+          data: {
+            error: error instanceof Error ? error.message : String(error),
+            failedStream: eventData.targetStream,
+          },
+          metadata: {},
+          contentType: 'application/json' as const,
+        };
+        
+        await this.client.appendToStream(transactionStreamId, [failureEvent]);
         throw error;
       }
     }
 
     // Mark transaction as completed
     await this.client.appendToStream(transactionStreamId, [
-      jsonEvent({
+      {
+        id: randomUUID(),
         type: 'TransactionCompleted',
         data: {
           timestamp: new Date().toISOString(),
         },
-      }),
+        metadata: {},
+        contentType: 'application/json' as const,
+      }
     ]);
   }
 

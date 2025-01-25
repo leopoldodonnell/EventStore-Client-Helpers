@@ -299,14 +299,26 @@ describe('StreamHelper', () => {
           expect.objectContaining({
             type: 'StreamEvent',
             data: expect.objectContaining({
-              targetStream: 'stream1'
-            })
+              targetStream: 'stream1',
+              event: expect.objectContaining({
+                type: 'valueUpdated',
+                data: { value: 5 }
+              })
+            }),
+            metadata: expect.any(Object),
+            contentType: 'application/json'
           }),
           expect.objectContaining({
             type: 'StreamEvent',
             data: expect.objectContaining({
-              targetStream: 'stream2'
-            })
+              targetStream: 'stream2',
+              event: expect.objectContaining({
+                type: 'valueUpdated',
+                data: { value: 10 }
+              })
+            }),
+            metadata: expect.any(Object),
+            contentType: 'application/json'
           })
         ])
       );
@@ -322,9 +334,10 @@ describe('StreamHelper', () => {
               event: {
                 type: 'valueUpdated',
                 data: { value: 5 }
-              },
-              expectedRevision: BigInt(0)
-            }
+              }
+            },
+            metadata: {},
+            contentType: 'application/json'
           }
         },
         {
@@ -336,7 +349,9 @@ describe('StreamHelper', () => {
                 type: 'valueUpdated',
                 data: { value: 10 }
               }
-            }
+            },
+            metadata: {},
+            contentType: 'application/json'
           }
         }
       ];
@@ -354,17 +369,34 @@ describe('StreamHelper', () => {
 
       expect(client.appendToStream).toHaveBeenCalledWith(
         'stream1',
-        [expect.any(Object)],
+        [expect.objectContaining({
+          type: 'valueUpdated',
+          data: { value: 5 },
+          metadata: expect.any(Object),
+          contentType: 'application/json'
+        })],
         { expectedRevision: BigInt(0) }
       );
+
       expect(client.appendToStream).toHaveBeenCalledWith(
         'stream2',
-        [expect.any(Object)],
-        { expectedRevision: undefined }
+        [expect.objectContaining({
+          type: 'valueUpdated',
+          data: { value: 10 },
+          metadata: expect.any(Object),
+          contentType: 'application/json'
+        })],
+        { expectedRevision: BigInt(0) }
       );
+
       expect(client.appendToStream).toHaveBeenCalledWith(
         '$tx-tx1',
-        [expect.objectContaining({ type: 'TransactionCompleted' })]
+        [expect.objectContaining({
+          type: 'TransactionCompleted',
+          data: expect.any(Object),
+          metadata: expect.any(Object),
+          contentType: 'application/json'
+        })]
       );
     });
 
@@ -378,7 +410,9 @@ describe('StreamHelper', () => {
               type: 'valueUpdated',
               data: { value: 5 }
             }
-          }
+          },
+          metadata: {},
+          contentType: 'application/json'
         }
       }];
 
@@ -404,7 +438,9 @@ describe('StreamHelper', () => {
           data: expect.objectContaining({
             error: 'Concurrency error',
             failedStream: 'stream1'
-          })
+          }),
+          metadata: expect.any(Object),
+          contentType: 'application/json'
         })]
       );
     });
@@ -430,7 +466,9 @@ describe('StreamHelper', () => {
             state,
             version,
             timestamp: expect.any(String)
-          })
+          }),
+          metadata: expect.any(Object),
+          contentType: 'application/json'
         })]
       );
     });
