@@ -12,6 +12,24 @@ Part of the [EventStore Client Helpers](../../README.md) project.
 - View account details
 - Automatic snapshots every 5 events
 - Event versioning and migration support
+- Atomic transactions with aggregate root support (V2)
+- Transaction tracking across multiple streams (V2)
+
+## Implementation Versions
+
+### V1 (Basic Event Sourcing)
+The basic implementation (`AccountAggregate`) demonstrates simple event sourcing patterns:
+- Single stream per account
+- Basic event handling
+- Snapshot support
+- Event versioning
+
+### V2 (Aggregate Root)
+The advanced implementation (`AccountAggregateV2`) showcases complex domain modeling:
+- Aggregate root pattern
+- Atomic transactions across multiple streams
+- Transaction entity tracking
+- Automatic rollback on failures
 
 ## Getting Started
 
@@ -28,6 +46,42 @@ npm install
 3. Start the application:
 ```bash
 npm run dev
+```
+
+## Usage Examples
+
+### Basic Usage (V1)
+```typescript
+import { AccountAggregate } from './account';
+
+const account = new AccountAggregate(client);
+const accountId = await account.createAccount('John Doe', 1000, 'savings');
+await account.deposit(accountId, 500, 'Salary');
+await account.withdraw(accountId, 200, 'ATM Withdrawal');
+```
+
+### Advanced Usage (V2)
+```typescript
+import { AccountAggregateV2 } from './accountAggregateV2';
+
+const account = new AccountAggregateV2(client);
+
+// All operations are atomic and track related transactions
+const accountId = await account.createAccount('John Doe', 1000, 'savings');
+
+// Deposit with transaction tracking
+await account.deposit(accountId, 500, 'Salary');
+// Creates two streams:
+// - account-{id}: Contains account events
+// - transaction-{id}: Contains transaction details
+
+// Withdraw with automatic rollback on insufficient funds
+try {
+  await account.withdraw(accountId, 200, 'ATM Withdrawal');
+} catch (error) {
+  // Transaction automatically rolled back if it fails
+  console.error('Withdrawal failed:', error.message);
+}
 ```
 
 ## API Endpoints

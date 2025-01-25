@@ -7,11 +7,13 @@ Part of the [EventStore Client Helpers](../../README.md) project.
 ## Features
 
 - **Stream Management**: Easy-to-use `StreamHelper` class for managing event streams
+- **Aggregate Root Support**: `AggregateHelper` class for managing complex domain aggregates with atomic transactions
 - **Automatic Snapshotting**: Configurable automatic snapshot creation for performance optimization
 - **Event Versioning**: Built-in support for event versioning and migrations
 - **Type Safety**: Full TypeScript support with generics for type-safe event handling
 - **JSON Compatibility**: Automatic handling of JSON serialization/deserialization
 - **State Rebuilding**: Efficient state rebuilding from events and snapshots
+- **Multi-Stream Transactions**: Support for atomic operations across multiple streams
 
 ## Installation
 
@@ -20,6 +22,8 @@ npm install @eventstore-helpers/core
 ```
 
 ## Quick Start
+
+### Basic Stream Management
 
 ```typescript
 import { EventStoreDBClient } from '@eventstore/db-client';
@@ -54,12 +58,54 @@ await streamHelper.appendEvent('account-123', {
     initialBalance: 1000
   }
 });
+```
 
-// Get current state
-const { state } = await streamHelper.getCurrentState('account-123', (state, event) => {
-  // Apply event to state
-  return newState;
-});
+### Aggregate Root Management
+
+```typescript
+import { AggregateHelper, BaseEvent } from '@eventstore-helpers/core';
+
+// Define your aggregate events
+interface AccountEvent extends BaseEvent {
+  affectedEntities?: Array<{
+    id: string;
+    type: string;
+    version: number;
+  }>;
+}
+
+// Configure aggregate helper
+const config = {
+  snapshotFrequency: 5,
+  currentEventVersion: 1,
+  aggregatePrefix: 'account-',
+  entityPrefixes: {
+    transaction: 'transaction-'
+  }
+};
+
+// Create aggregate helper instance
+const aggregateHelper = new AggregateHelper(client, config);
+
+// Start a transaction
+await aggregateHelper.beginTransaction('123');
+
+try {
+  // Add events with affected entities
+  await aggregateHelper.addEvent('123', {
+    type: 'MoneyDeposited',
+    data: { amount: 1000 }
+  }, [
+    { id: 'tx-1', type: 'transaction', version: 1 }
+  ]);
+
+  // Commit all changes atomically
+  await aggregateHelper.commitTransaction('123');
+} catch (error) {
+  // Rollback on error
+  await aggregateHelper.rollbackTransaction('123');
+  throw error;
+}
 ```
 
 ## Key Concepts
@@ -72,6 +118,14 @@ The `StreamHelper` class provides methods for:
 - Managing snapshots
 - Rebuilding aggregate state
 - Handling event migrations
+
+### Aggregate Helper
+
+The `AggregateHelper` class extends `StreamHelper` to provide advanced aggregate root management:
+- Atomic transactions across multiple streams
+- Entity reference tracking
+- Transaction lifecycle management (begin/commit/rollback)
+- Automatic versioning of related entities
 
 ### Event Versioning
 
@@ -125,10 +179,24 @@ constructor(client: EventStoreDBClient, config: StreamConfig)
 - `getLatestSnapshot(streamId: string): Promise<Snapshot<S> | null>`
 - `createSnapshot(streamId: string, state: S | null, version: number): Promise<void>`
 
+### AggregateHelper
+
+#### Constructor
+```typescript
+constructor(client: EventStoreDBClient, config: AggregateConfig)
+```
+
+#### Methods
+- `beginTransaction(aggregateId: string): Promise<void>`
+- `addEvent(aggregateId: string, event: E, affectedEntities?: Array<{ id: string; type: string; version: number }>): Promise<void>`
+- `commitTransaction(aggregateId: string): Promise<void>`
+- `rollbackTransaction(aggregateId: string): Promise<void>`
+
 ### Types
 
 - `BaseEvent<T, D>`: Base type for all events
 - `StreamConfig`: Configuration options for StreamHelper
+- `AggregateConfig`: Configuration options for AggregateHelper
 - `EventMigration`: Event migration definition
 - `Snapshot`: Snapshot data structure
 - `JSONType`: Type for JSON-compatible objects
