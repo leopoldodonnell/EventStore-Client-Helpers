@@ -24,13 +24,14 @@
   "license": "MIT",
   "private": true,
   "dependencies": {
-    "@eventstore/db-client": "^5.0.0",
+    "@eventstore/db-client": "^6.2.1",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
     "@nx/node": "^17.0.0",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.0.0",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",

@@ -15,6 +15,33 @@ Part of the [EventStore Client Helpers](../../README.md) project.
 - Atomic transactions with aggregate root support (V2)
 - Transaction tracking across multiple streams (V2)
 
+## Architecture
+
+### Component Diagram
+
+```mermaid
+C4Component
+  title Component Diagram - Example Bank Application
+  
+  Container_Boundary(bank, "Example Bank Application") {
+    Component(accountv1, "AccountAggregate", "TypeScript Class", "Basic event sourcing implementation")
+    Component(accountv2, "AccountAggregateV2", "TypeScript Class", "Advanced aggregate root implementation")
+    Component(events, "Account Events", "TypeScript Types", "Account-related event definitions")
+    Component(state, "Account State", "TypeScript Types", "Account state and transaction tracking")
+  }
+  
+  Container_Ext(core, "@eventstore-helpers/core", "TypeScript Library")
+  System_Ext(eventstore, "EventStoreDB", "Event store database system")
+  
+  Rel(accountv1, core, "Uses StreamHelper")
+  Rel(accountv2, core, "Uses AggregateHelper")
+  Rel(accountv1, events, "Uses")
+  Rel(accountv2, events, "Uses")
+  Rel(accountv1, state, "Manages")
+  Rel(accountv2, state, "Manages")
+  Rel(core, eventstore, "Manages events and snapshots")
+```
+
 ## Implementation Versions
 
 ### V1 (Basic Event Sourcing)

@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@eventstore-helpers/core": "^0.1.0",
-    "@eventstore/db-client": "^5.0.0",
+    "@eventstore/db-client": "^6.2.1",
     "express": "^4.18.2"
   },
   "devDependencies": {

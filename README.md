@@ -6,6 +6,44 @@
 
 A collection of tools and examples for working with [EventStoreDB](https://www.eventstore.com/) in TypeScript.
 
+## Architecture
+
+### System Context Diagram
+
+```mermaid
+C4Context
+  title System Context Diagram - EventStore Client Helpers
+  
+  Person(developer, "Developer", "Application developer using the library")
+  System(helpers, "EventStore Client Helpers", "TypeScript library providing high-level abstractions for event sourcing")
+  System_Ext(eventstore, "EventStoreDB", "Event store database system")
+  
+  Rel(developer, helpers, "Uses")
+  Rel(helpers, eventstore, "Manages events and snapshots")
+```
+
+### Container Diagram
+
+```mermaid
+C4Container
+  title Container Diagram - EventStore Client Helpers
+  
+  Person(developer, "Developer", "Application developer using the library")
+  
+  Container_Boundary(helpers, "EventStore Client Helpers") {
+    Container(core, "@eventstore-helpers/core", "TypeScript Library", "Provides stream management, aggregates, and event handling")
+    Container(example, "example-bank", "Example Application", "Demonstrates library usage with banking domain")
+  }
+  
+  System_Ext(eventstore, "EventStoreDB", "Event store database system")
+  
+  Rel(developer, core, "Uses for event sourcing")
+  Rel(developer, example, "References as example")
+  Rel(core, eventstore, "Manages events and snapshots")
+  Rel(example, core, "Uses")
+  Rel(example, eventstore, "Stores events through core")
+```
+
 ## Projects
 
 This monorepo contains the following projects:

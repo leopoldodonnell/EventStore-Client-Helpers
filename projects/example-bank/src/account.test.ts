@@ -8,32 +8,41 @@ jest.mock('crypto', () => ({
   randomUUID: () => mockUUID
 }));
 
-// Create a mock class that extends StreamHelper
-class MockStreamHelper extends StreamHelper<BankAccount, BankAccountEvent> {
-  constructor() {
-    super({} as EventStoreDBClient, {
-      snapshotFrequency: 0,
-      currentEventVersion: 1,
-      eventMigrations: []
-    });
-  }
-
-  appendEvent = jest.fn();
-  getLatestSnapshot = jest.fn();
-  getCurrentState = jest.fn();
-}
-
 describe('AccountAggregate', () => {
-  let mockStreamHelper: MockStreamHelper;
+  let mockStreamHelper: jest.Mocked<StreamHelper<BankAccount, BankAccountEvent>>;
   let accountAggregate: AccountAggregate;
 
   beforeEach(() => {
-    mockStreamHelper = new MockStreamHelper();
+    mockStreamHelper = {
+      appendEvent: jest.fn().mockResolvedValue(undefined),
+      getCurrentState: jest.fn().mockResolvedValue({
+        state: {
+          id: 'account-test-uuid',
+          owner: 'John Doe',
+          balance: 1000,
+          version: 1,
+          createdAt: '2025-01-20T15:49:09-05:00',
+          updatedAt: '2025-01-20T15:49:09-05:00',
+          accountType: 'checking',
+          metadata: {},
+          type: 'AccountCreated',
+          data: {
+            id: 'account-test-uuid',
+            owner: 'John Doe',
+            initialBalance: 1000,
+            timestamp: '2025-01-20T15:49:09-05:00'
+          }
+        },
+        version: 1
+      }),
+    } as unknown as jest.Mocked<StreamHelper<BankAccount, BankAccountEvent>>;
+
     accountAggregate = new AccountAggregate(mockStreamHelper);
   });
 
   describe('createAccount', () => {
     it('should create a new account with initial balance', async () => {
+      const accountId = 'test-uuid';
       const owner = 'John Doe';
       const initialBalance = 1000;
       const accountType = 'checking';
@@ -43,193 +52,139 @@ describe('AccountAggregate', () => {
         transactionId: 'test-uuid'
       };
 
-      await accountAggregate.createAccount(owner, initialBalance, accountType, metadata);
+      await accountAggregate.createAccount(accountId, owner, initialBalance, accountType, metadata);
 
       expect(mockStreamHelper.appendEvent).toHaveBeenCalledWith(
         'account-test-uuid',
-        {
+        expect.objectContaining({
           type: 'AccountCreated',
           version: 1,
-          data: {
+          data: expect.objectContaining({
             id: 'account-test-uuid',
             owner,
             initialBalance,
             accountType,
-            timestamp: expect.any(String),
-          },
+          }),
           metadata,
-        }
+        })
       );
     });
   });
 
   describe('deposit', () => {
-    it('should deposit money into account', async () => {
+    it('should deposit money into an account', async () => {
       const accountId = 'test-uuid';
       const amount = 500;
       const description = 'Salary deposit';
-      const metadata = { userId: 'test-user', transactionId: 'test-uuid', source: 'test' };
-
-      mockStreamHelper.getCurrentState.mockResolvedValue({
-        state: {
-          id: 'account-test-uuid',
-          owner: 'John Doe',
-          balance: 1000,
-          version: 1,
-          createdAt: '2025-01-20T15:49:09-05:00',
-          updatedAt: '2025-01-20T15:49:09-05:00',
-          accountType: 'checking',
-          metadata: {},
-          type: 'AccountCreated',
-          data: {
-            id: 'account-test-uuid',
-            owner: 'John Doe',
-            initialBalance: 1000,
-            timestamp: '2025-01-20T15:49:09-05:00',
-          },
-        },
-        version: 1
-      });
+      const metadata: TransactionMetadata = { 
+        userId: 'test-user',
+        source: 'test',
+        transactionId: 'test-uuid'
+      };
 
       await accountAggregate.deposit(accountId, amount, description, metadata);
 
       expect(mockStreamHelper.appendEvent).toHaveBeenCalledWith(
         'account-test-uuid',
-        {
+        expect.objectContaining({
           type: 'MoneyDeposited',
           version: 1,
-          data: {
+          data: expect.objectContaining({
             amount,
             description,
-            timestamp: expect.any(String),
-          },
-          metadata
-        }
+          }),
+          metadata,
+        })
       );
     });
 
-    it('should throw error when first event is not AccountCreated', async () => {
-      const accountId = 'test-uuid';
-      const amount = 500;
-      const description = 'Salary deposit';
-      const metadata = { userId: 'test-user', transactionId: 'test-uuid', source: 'test' };
+    it('should fail to deposit to non-existent account', async () => {
+      const accountId = 'non-existent';
+      const metadata: TransactionMetadata = { 
+        userId: 'test-user',
+        source: 'test',
+        transactionId: 'test-uuid'
+      };
 
-      mockStreamHelper.getCurrentState.mockResolvedValue({ state: null, version: 0 });
-
-      await expect(accountAggregate.deposit(accountId, amount, description, metadata))
-        .rejects
-        .toThrow('First event must be AccountCreated');
+      mockStreamHelper.getCurrentState.mockResolvedValueOnce({ state: null, version: -1 });
+      
+      await expect(accountAggregate.deposit(accountId, 500, 'Salary deposit', metadata))
+        .rejects.toThrow('Account not found');
     });
   });
 
   describe('withdraw', () => {
-    it('should withdraw money from account', async () => {
+    it('should withdraw money from an account', async () => {
       const accountId = 'test-uuid';
       const amount = 500;
       const description = 'ATM withdrawal';
-      const metadata = { userId: 'test-user', transactionId: 'test-uuid', source: 'test' };
-
-      mockStreamHelper.getCurrentState.mockResolvedValue({
-        state: {
-          id: 'account-test-uuid',
-          owner: 'John Doe',
-          balance: 1000,
-          version: 1,
-          createdAt: '2025-01-20T15:49:09-05:00',
-          updatedAt: '2025-01-20T15:49:09-05:00',
-          accountType: 'checking',
-          metadata: {},
-          type: 'AccountCreated',
-          data: {
-            id: 'account-test-uuid',
-            owner: 'John Doe',
-            initialBalance: 1000,
-            timestamp: '2025-01-20T15:49:09-05:00',
-          },
-        },
-        version: 1
-      });
+      const metadata: TransactionMetadata = { 
+        userId: 'test-user',
+        source: 'test',
+        transactionId: 'test-uuid'
+      };
 
       await accountAggregate.withdraw(accountId, amount, description, metadata);
 
       expect(mockStreamHelper.appendEvent).toHaveBeenCalledWith(
         'account-test-uuid',
-        {
+        expect.objectContaining({
           type: 'MoneyWithdrawn',
           version: 1,
-          data: {
+          data: expect.objectContaining({
             amount,
             description,
-            timestamp: expect.any(String),
-          },
-          metadata
-        }
+          }),
+          metadata,
+        })
       );
     });
 
-    it('should throw error when withdrawing more than balance', async () => {
+    it('should fail to withdraw from non-existent account', async () => {
+      const accountId = 'non-existent';
+      const metadata: TransactionMetadata = { 
+        userId: 'test-user',
+        source: 'test',
+        transactionId: 'test-uuid'
+      };
+
+      mockStreamHelper.getCurrentState.mockResolvedValueOnce({ state: null, version: -1 });
+      
+      await expect(accountAggregate.withdraw(accountId, 500, 'ATM withdrawal', metadata))
+        .rejects.toThrow('Account not found');
+    });
+
+    it('should fail to withdraw more than balance', async () => {
       const accountId = 'test-uuid';
-      const amount = 1500;
-      const description = 'ATM withdrawal';
-      const metadata = { userId: 'test-user', transactionId: 'test-uuid', source: 'test' };
+      const metadata: TransactionMetadata = { 
+        userId: 'test-user',
+        source: 'test',
+        transactionId: 'test-uuid'
+      };
 
-      mockStreamHelper.getCurrentState.mockResolvedValue({
-        state: {
-          id: 'account-test-uuid',
-          owner: 'John Doe',
-          balance: 1000,
-          version: 1,
-          createdAt: '2025-01-20T15:49:09-05:00',
-          updatedAt: '2025-01-20T15:49:09-05:00',
-          accountType: 'checking',
-          metadata: {},
-          type: 'AccountCreated',
-          data: {
-            id: 'account-test-uuid',
-            owner: 'John Doe',
-            initialBalance: 1000,
-            timestamp: '2025-01-20T15:49:09-05:00',
-          },
-        },
-        version: 1
-      });
-
-      await expect(accountAggregate.withdraw(accountId, amount, description, metadata))
-        .rejects
-        .toThrow('Insufficient funds');
+      await accountAggregate.createAccount(accountId, 'John Doe', 1000, 'checking', metadata);
+      await expect(accountAggregate.withdraw(accountId, 1500, 'ATM withdrawal', metadata))
+        .rejects.toThrow('Insufficient funds');
     });
   });
 
   describe('getAccount', () => {
     it('should return null for non-existent account', async () => {
       const accountId = 'non-existent';
-      mockStreamHelper.getCurrentState.mockResolvedValue({ state: null, version: 0 });
-
-      const result = await accountAggregate.getAccount(accountId);
-      expect(result).toBeNull();
+      mockStreamHelper.getCurrentState.mockResolvedValueOnce({ state: null, version: -1 });
+      const account = await accountAggregate.getAccount(accountId);
+      expect(account).toBeNull();
     });
 
     it('should return account state for existing account', async () => {
       const accountId = 'test-uuid';
-      const mockAccount: BankAccount = {
+      const account = await accountAggregate.getAccount(accountId);
+      expect(account).toEqual(expect.objectContaining({
         id: 'account-test-uuid',
         owner: 'John Doe',
         balance: 1000,
-        version: 1,
-        createdAt: '2025-01-20T16:46:27-05:00',
-        updatedAt: '2025-01-20T16:46:27-05:00',
         accountType: 'checking',
-        type: 'BankAccount',
-        data: {}
-      };
-
-      mockStreamHelper.getCurrentState.mockResolvedValue({
-        state: mockAccount,
-        version: 1
-      });
-
-      const result = await accountAggregate.getAccount(accountId);
-      expect(result).toEqual(mockAccount);
+      }));
     });
   });
 

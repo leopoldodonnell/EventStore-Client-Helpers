@@ -15,6 +15,31 @@ Part of the [EventStore Client Helpers](../../README.md) project.
 - **State Rebuilding**: Efficient state rebuilding from events and snapshots
 - **Multi-Stream Transactions**: Support for atomic operations across multiple streams
 
+## Architecture
+
+### Component Diagram
+
+```mermaid
+C4Component
+  title Component Diagram - @eventstore-helpers/core
+  
+  Container_Boundary(core, "@eventstore-helpers/core") {
+    Component(stream, "StreamHelper", "TypeScript Class", "Manages individual event streams and snapshots")
+    Component(aggregate, "AggregateHelper", "TypeScript Class", "Manages complex domain aggregates with atomic transactions")
+    Component(event, "Event Management", "TypeScript Types & Utils", "Handles event versioning, serialization, and migrations")
+    Component(snapshot, "Snapshot Management", "TypeScript Utils", "Handles automatic snapshot creation and loading")
+  }
+  
+  System_Ext(eventstore, "EventStoreDB", "Event store database system")
+  
+  Rel(stream, eventstore, "Reads/Writes events and snapshots")
+  Rel(aggregate, stream, "Uses for stream operations")
+  Rel(aggregate, event, "Uses for event handling")
+  Rel(stream, event, "Uses for event processing")
+  Rel(stream, snapshot, "Uses for snapshot management")
+  Rel(aggregate, snapshot, "Uses for aggregate snapshots")
+```
+
 ## Installation
 
 ```bash

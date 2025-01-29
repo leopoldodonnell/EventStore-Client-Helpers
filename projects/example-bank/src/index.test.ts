@@ -26,9 +26,14 @@ describe('Bank API', () => {
     // Mock the endpoints
     app.post('/accounts', async (req, res) => {
       try {
-        const { owner, initialBalance } = req.body;
+        const { owner, initialBalance, accountType } = req.body;
         const accountId = 'test-account-id'; // Fixed ID for testing
-        await mockAccountAggregate.createAccount(accountId, owner, initialBalance);
+        const metadata = {
+          userId: 'test-user',
+          transactionId: expect.any(String),
+          source: 'api'
+        };
+        await mockAccountAggregate.createAccount(accountId, owner, initialBalance, accountType, metadata);
         res.json({ accountId });
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
@@ -52,7 +57,12 @@ describe('Bank API', () => {
       try {
         const { amount } = req.body;
         const userId = req.headers['x-user-id'] as string || 'anonymous';
-        await mockAccountAggregate.deposit(req.params.id, amount, userId);
+        const metadata = {
+          userId,
+          transactionId: expect.any(String),
+          source: 'api'
+        };
+        await mockAccountAggregate.deposit(req.params.id, amount, 'API Deposit', metadata);
         const account = await mockAccountAggregate.getAccount(req.params.id);
         res.json(account);
       } catch (error) {
@@ -64,7 +74,12 @@ describe('Bank API', () => {
       try {
         const { amount } = req.body;
         const userId = req.headers['x-user-id'] as string || 'anonymous';
-        await mockAccountAggregate.withdraw(req.params.id, amount, userId);
+        const metadata = {
+          userId,
+          transactionId: expect.any(String),
+          source: 'api'
+        };
+        await mockAccountAggregate.withdraw(req.params.id, amount, 'API Withdrawal', metadata);
         const account = await mockAccountAggregate.getAccount(req.params.id);
         res.json(account);
       } catch (error) {
@@ -75,16 +90,28 @@ describe('Bank API', () => {
 
   describe('POST /accounts', () => {
     it('should create a new account', async () => {
+      const accountId = 'test-account-id';
+      const owner = 'John Doe';
+      const initialBalance = 1000;
+      const accountType = 'checking';
+      const metadata = {
+        userId: 'test-user',
+        transactionId: expect.any(String),
+        source: 'api'
+      };
+
       const response = await request(app)
         .post('/accounts')
-        .send({ owner: 'John Doe', initialBalance: 1000 });
+        .send({ owner, initialBalance, accountType });
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('accountId');
       expect(mockAccountAggregate.createAccount).toHaveBeenCalledWith(
-        'test-account-id',
-        'John Doe',
-        1000
+        expect.any(String),
+        owner,
+        initialBalance,
+        accountType,
+        expect.objectContaining(metadata)
       );
     });
   });
@@ -158,7 +185,12 @@ describe('Bank API', () => {
       expect(mockAccountAggregate.deposit).toHaveBeenCalledWith(
         'test-account-id',
         500,
-        'test-user'
+        'API Deposit',
+        expect.objectContaining({
+          userId: 'test-user',
+          transactionId: expect.any(String),
+          source: 'api'
+        })
       );
     });
   });
@@ -194,7 +226,12 @@ describe('Bank API', () => {
       expect(mockAccountAggregate.withdraw).toHaveBeenCalledWith(
         'test-account-id',
         500,
-        'test-user'
+        'API Withdrawal',
+        expect.objectContaining({
+          userId: 'test-user',
+          transactionId: expect.any(String),
+          source: 'api'
+        })
       );
     });
   });

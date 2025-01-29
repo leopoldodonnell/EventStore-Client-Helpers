@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { StreamHelper } from '@eventstore-helpers/core';
 import { migrations } from './migrations';
 import { BankAccount, AccountEventV1, AccountEventV2 } from './types';
+import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 app.use(express.json());
@@ -22,7 +23,13 @@ app.post('/accounts', async (req, res) => {
   try {
     const { owner, initialBalance, accountType } = req.body;
     console.log('Creating account with:', { owner, initialBalance, accountType });
-    const accountId = await accountAggregate.createAccount(owner, initialBalance, accountType);
+    const accountId = crypto.randomUUID();
+    const metadata = {
+      userId: 'system',
+      source: 'api',
+      transactionId: crypto.randomUUID()
+    };
+    await accountAggregate.createAccount(accountId, owner, initialBalance, accountType, metadata);
     console.log('Account created with ID:', accountId);
     
     // Add delay to ensure event is processed
@@ -39,8 +46,13 @@ app.post('/accounts', async (req, res) => {
     
     res.json(account);
   } catch (error) {
-    console.error('Error creating account:', error);
-    res.status(500).json({ error: (error as Error).message });
+    if (error instanceof Error) {
+      console.error('Error creating account:', error);
+      res.status(500).json({ error: error.message });
+    } else {
+      console.error('Unknown error creating account:', error);
+      res.status(500).json({ error: 'An unknown error occurred' });
+    }
   }
 });
 
@@ -58,56 +70,59 @@ app.get('/accounts/:id', async (req, res) => {
     }
     res.json(account);
   } catch (error) {
-    console.error('Error getting account:', error);
-    res.status(500).json({ error: (error as Error).message });
+    if (error instanceof Error) {
+      console.error('Error getting account:', error);
+      res.status(500).json({ error: error.message });
+    } else {
+      console.error('Unknown error getting account:', error);
+      res.status(500).json({ error: 'An unknown error occurred' });
+    }
   }
 });
 
 // Deposit money
 app.post('/accounts/:id/deposit', async (req, res) => {
   try {
-    const { amount, userId, description } = req.body;
-    console.log('Depositing to account:', req.params.id, { amount, userId, description });
-    
-    // First verify account exists
+    const { amount } = req.body;
+    const userId = req.headers['x-user-id'] as string || 'anonymous';
+    const metadata = {
+      userId,
+      transactionId: uuidv4(),
+      source: 'api'
+    };
+
+    await accountAggregate.deposit(req.params.id, amount, 'API Deposit', metadata);
     const account = await accountAggregate.getAccount(req.params.id);
-    if (!account) {
-      console.error('Account not found for deposit:', req.params.id);
-      res.status(404).json({ error: 'Account not found' });
-      return;
-    }
-    
-    await accountAggregate.deposit(req.params.id, amount, userId, description);
-    const updatedAccount = await accountAggregate.getAccount(req.params.id);
-    console.log('Account after deposit:', updatedAccount);
-    res.json(updatedAccount);
+    res.json({ success: true, account });
   } catch (error) {
-    console.error('Error depositing money:', error);
-    res.status(500).json({ error: (error as Error).message });
+    if (error instanceof Error) {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(400).json({ error: 'An unknown error occurred' });
+    }
   }
 });
 
 // Withdraw money
 app.post('/accounts/:id/withdraw', async (req, res) => {
   try {
-    const { amount, userId, description } = req.body;
-    console.log('Withdrawing money from account:', req.params.id, { amount, userId, description });
-    
-    // First verify account exists
+    const { amount } = req.body;
+    const userId = req.headers['x-user-id'] as string || 'anonymous';
+    const metadata = {
+      userId,
+      transactionId: uuidv4(),
+      source: 'api'
+    };
+
+    await accountAggregate.withdraw(req.params.id, amount, 'API Withdrawal', metadata);
     const account = await accountAggregate.getAccount(req.params.id);
-    if (!account) {
-      console.error('Account not found for withdrawal:', req.params.id);
-      res.status(404).json({ error: 'Account not found' });
-      return;
-    }
-    
-    await accountAggregate.withdraw(req.params.id, amount, userId, description);
-    const updatedAccount = await accountAggregate.getAccount(req.params.id);
-    console.log('Account after withdrawal:', updatedAccount);
-    res.json(updatedAccount);
+    res.json({ success: true, account });
   } catch (error) {
-    console.error('Error withdrawing money:', error);
-    res.status(500).json({ error: (error as Error).message });
+    if (error instanceof Error) {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(400).json({ error: 'An unknown error occurred' });
+    }
   }
 });
 
