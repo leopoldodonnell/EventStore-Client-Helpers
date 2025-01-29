@@ -52,11 +52,92 @@ The basic implementation (`AccountAggregate`) demonstrates simple event sourcing
 - Event versioning
 
 ### V2 (Aggregate Root)
-The advanced implementation (`AccountAggregateV2`) showcases complex domain modeling:
-- Aggregate root pattern
-- Atomic transactions across multiple streams
-- Transaction entity tracking
-- Automatic rollback on failures
+The advanced implementation (`AccountAggregateV2`) showcases complex domain modeling using the Aggregate Root pattern from Domain-Driven Design:
+
+#### Aggregate Root Pattern Implementation
+The `AccountAggregateV2` class demonstrates how to implement an aggregate root that manages the consistency of multiple related entities:
+
+1. **Consistency Boundary**
+   - The account aggregate manages both the account state and its transactions
+   - All modifications must go through the aggregate root
+   - Ensures business rules and invariants are maintained across entities
+
+2. **Transaction Management**
+   ```typescript
+   interface TransactionEntity {
+     id: string;
+     type: 'transaction';
+     version: number;
+   }
+   ```
+   - Each operation creates and manages transaction entities
+   - Transactions are atomic and consistent with account state changes
+   - Automatic rollback ensures data consistency on failures
+
+3. **Entity Relationships**
+   ```typescript
+   entityPrefixes: {
+     transaction: 'transaction'
+   }
+   ```
+   - Manages relationships between account and transactions
+   - Maintains referential integrity within the aggregate boundary
+   - Provides clear entity type identification
+
+4. **Invariant Protection**
+   - Enforces business rules across multiple entities:
+     - Account must exist before transactions
+     - Sufficient funds for withdrawals
+     - Balance consistency across all transactions
+   - Validates state changes before committing
+
+5. **Atomic Operations**
+   ```typescript
+   await aggregateHelper.beginTransaction(accountId);
+   try {
+     await aggregateHelper.addEvent(accountId, event, [transactionEntity]);
+     await aggregateHelper.commitTransaction(accountId);
+   } catch (error) {
+     await aggregateHelper.rollbackTransaction(accountId);
+   }
+   ```
+   - All changes are atomic
+   - Maintains consistency across multiple entities
+   - Automatic rollback on failures
+
+This implementation follows DDD best practices by:
+- Encapsulating business logic within the aggregate
+- Protecting invariants across multiple entities
+- Ensuring atomic operations
+- Managing entity lifecycles
+- Maintaining clear consistency boundaries
+
+### Advanced Usage (V2)
+```typescript
+import { AccountAggregateV2 } from './accountAggregateV2';
+
+const account = new AccountAggregateV2(client);
+
+// Create account with transaction tracking
+const accountId = await account.createAccount('John Doe', 1000, 'savings');
+
+// Atomic deposit operation
+await account.deposit(accountId, 500, 'Salary', {
+  userId: 'user123',
+  source: 'web',
+  transactionId: 'tx123'
+});
+
+// Atomic withdrawal with transaction tracking
+await account.withdraw(accountId, 200, 'ATM Withdrawal', {
+  userId: 'user123',
+  source: 'atm',
+  transactionId: 'tx124'
+});
+
+// Get current account state
+const accountState = await account.getAccount(accountId);
+```
 
 ## Getting Started
 
@@ -85,30 +166,6 @@ const account = new AccountAggregate(client);
 const accountId = await account.createAccount('John Doe', 1000, 'savings');
 await account.deposit(accountId, 500, 'Salary');
 await account.withdraw(accountId, 200, 'ATM Withdrawal');
-```
-
-### Advanced Usage (V2)
-```typescript
-import { AccountAggregateV2 } from './accountAggregateV2';
-
-const account = new AccountAggregateV2(client);
-
-// All operations are atomic and track related transactions
-const accountId = await account.createAccount('John Doe', 1000, 'savings');
-
-// Deposit with transaction tracking
-await account.deposit(accountId, 500, 'Salary');
-// Creates two streams:
-// - account-{id}: Contains account events
-// - transaction-{id}: Contains transaction details
-
-// Withdraw with automatic rollback on insufficient funds
-try {
-  await account.withdraw(accountId, 200, 'ATM Withdrawal');
-} catch (error) {
-  // Transaction automatically rolled back if it fails
-  console.error('Withdrawal failed:', error.message);
-}
 ```
 
 ## API Endpoints
